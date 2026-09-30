@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Support liquid, echo and inline comments, ASCII tag whitespace and question-mark property lookup.
 - Support the default filter allow_false keyword.
+- Implement find_index with Ruby property, flattening and typed equality semantics.
 
 ### Fixes
 

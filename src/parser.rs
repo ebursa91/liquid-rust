@@ -76,6 +76,7 @@ where
             .filter(stdlib::Downcase)
             .filter(stdlib::Escape)
             .filter(stdlib::EscapeOnce)
+            .filter(stdlib::FindIndex)
             .filter(stdlib::First)
             .filter(stdlib::Floor)
             .filter(stdlib::Join)

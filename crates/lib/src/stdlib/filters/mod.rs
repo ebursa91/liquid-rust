@@ -15,7 +15,7 @@ mod string;
 mod url;
 
 pub use self::array::{
-    Compact, Concat, First, Join, Last, Map, Reverse, Sort, SortNatural, Uniq, Where,
+    Compact, Concat, FindIndex, First, Join, Last, Map, Reverse, Sort, SortNatural, Uniq, Where,
 };
 pub use self::date::Date;
 pub use self::html::{Escape, EscapeOnce, NewlineToBr, StripHtml};
