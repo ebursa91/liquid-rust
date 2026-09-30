@@ -145,10 +145,6 @@ struct NewlineToBrFilter;
 impl Filter for NewlineToBrFilter {
     fn evaluate(&self, input: &dyn ValueView, _runtime: &dyn Runtime) -> Result<Value> {
         let input = input.to_kstr();
-        // Keep the optimized replacement path for inputs without carriage returns.
-        if !input.contains('\r') {
-            return Ok(Value::scalar(input.replace('\n', "<br />\n")));
-        }
         let mut result = String::with_capacity(input.len());
         let mut last_end = 0;
         for (start, _) in input.match_indices('\n') {
