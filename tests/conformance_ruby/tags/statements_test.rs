@@ -123,3 +123,43 @@ fn test_not_nil() {
     let text = " {% if var != null %} true {% else %} false {% endif %} ";
     assert_template_result!("  true  ", text, o!({"var": 1}));
 }
+
+#[test]
+fn mixed_logical_conditions_follow_ruby_right_association() {
+    let parser = liquid::ParserBuilder::with_stdlib().build().unwrap();
+    for (condition, expected) in [
+        ("false and true or true", "no"),
+        ("false and false or true", "no"),
+        ("true or false and false", "yes"),
+        ("true and false or true", "yes"),
+        ("false and true or true and true", "no"),
+        ("false == true and false == false or true == true", "no"),
+    ] {
+        for (tag, end, positive, negative) in [
+            ("if", "endif", "yes", "no"),
+            ("unless", "endunless", "no", "yes"),
+        ] {
+            let source =
+                format!("{{% {tag} {condition} %}}{positive}{{% else %}}{negative}{{% {end} %}}");
+            assert_eq!(
+                parser
+                    .parse(&source)
+                    .unwrap()
+                    .render(&liquid::object!({}))
+                    .unwrap(),
+                expected,
+                "{source}"
+            );
+        }
+    }
+    let source =
+        "{% if false %}wrong{% elsif false and true or true %}wrong{% else %}right{% endif %}";
+    assert_eq!(
+        parser
+            .parse(source)
+            .unwrap()
+            .render(&liquid::object!({}))
+            .unwrap(),
+        "right"
+    );
+}

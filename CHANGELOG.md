@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixes
 
 - Keep literal-prefix variable names and property selectors distinct from literal values.
+- Match Ruby Liquid right-associated and/or conditions.
 
 ## [0.26.11] - 2025-02-04
 

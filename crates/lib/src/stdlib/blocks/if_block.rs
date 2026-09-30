@@ -410,36 +410,38 @@ fn parse_atom_condition(arguments: &mut PeekableTagTokenIter<'_>) -> Result<Cond
     Ok(cond)
 }
 
-fn parse_conjunction_chain(arguments: &mut PeekableTagTokenIter<'_>) -> Result<Condition> {
-    let mut lh = parse_atom_condition(arguments)?;
-
-    while let Some("and") = arguments.peek().map(TagToken::as_str) {
-        arguments.next();
-        let rh = parse_atom_condition(arguments)?;
-        lh = Condition::Conjunction(Box::new(lh), Box::new(rh));
-    }
-
-    Ok(lh)
-}
-
-/// Common parsing for "if" and "unless" condition
+/// Common parsing for "if" and "unless" conditions.
 fn parse_condition(arguments: TagTokenIter<'_>) -> Result<Condition> {
     let mut arguments = PeekableTagTokenIter {
         iter: arguments,
         peeked: None,
     };
-    let mut lh = parse_conjunction_chain(&mut arguments)?;
-
+    let mut atoms = vec![parse_atom_condition(&mut arguments)?];
+    let mut conjunctions = Vec::new();
     while let Some(token) = arguments.next() {
-        token
-            .expect_str("or")
-            .into_result_custom_msg("\"and\" or \"or\" expected.")?;
-
-        let rh = parse_conjunction_chain(&mut arguments)?;
-        lh = Condition::Disjunction(Box::new(lh), Box::new(rh));
+        let conjunction = match token.as_str() {
+            "and" => true,
+            "or" => false,
+            _ => {
+                return token
+                    .raise_custom_error("\"and\" or \"or\" expected.")
+                    .into_err()
+            }
+        };
+        conjunctions.push(conjunction);
+        atoms.push(parse_atom_condition(&mut arguments)?);
     }
-
-    Ok(lh)
+    // Liquid assigns equal precedence to and/or and groups from the right.
+    // Keep the existing left-first short-circuit evaluation of that tree.
+    let mut condition = atoms.pop().expect("At least one condition.");
+    for (left, conjunction) in atoms.into_iter().zip(conjunctions).rev() {
+        condition = if conjunction {
+            Condition::Conjunction(Box::new(left), Box::new(condition))
+        } else {
+            Condition::Disjunction(Box::new(left), Box::new(condition))
+        };
+    }
+    Ok(condition)
 }
 
 /// Format an error for an unexpected value.
