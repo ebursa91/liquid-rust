@@ -65,6 +65,34 @@ impl Variable {
         }
         Ok(path)
     }
+
+    /// Resolve a path whose missing dynamic selector makes the lookup optional.
+    ///
+    /// Evaluation errors are preserved. A nil or non-scalar index cannot select
+    /// a value in the Liquid value model, so it resolves to no path instead of a
+    /// scalar error. Strict lookup continues to use [`Variable::evaluate`].
+    pub(crate) fn evaluate_optional<'c>(
+        &'c self,
+        runtime: &'c dyn Runtime,
+    ) -> Result<Option<Path<'c>>> {
+        let mut path = Path::with_index(self.variable.as_ref());
+        path.reserve(self.indexes.len());
+        for expr in &self.indexes {
+            let value = expr.evaluate(runtime)?;
+            if value.is_nil() {
+                return Ok(None);
+            }
+            let scalar = match value {
+                ValueCow::Owned(value) => value.into_scalar(),
+                ValueCow::Borrowed(value) => value.as_scalar(),
+            };
+            let Some(scalar) = scalar else {
+                return Ok(None);
+            };
+            path.push(scalar);
+        }
+        Ok(Some(path))
+    }
 }
 
 impl Extend<Scalar> for Variable {
