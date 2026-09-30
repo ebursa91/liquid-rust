@@ -1005,6 +1005,11 @@ fn test_newlines_to_br() {
         "{{ source | newline_to_br }}",
         o!({"source": "a\nb\nc"}),
     );
+    assert_template_result!(
+        "a<br />\nb<br />\nc",
+        "{{ source | newline_to_br }}",
+        o!({"source": "a\r\nb\nc"}),
+    );
 }
 
 #[test]
