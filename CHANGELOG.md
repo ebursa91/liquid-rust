@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Multiply fractional decimal operands before converting to a float.
 - Preserve selected numeric clamp types and coerce nil multiplication operands to zero.
 
+### Internal
+
+- Add a synthetic Horizon storefront JSON, independent Ruby/Rust mock hosts and exact local rendering comparison.
+
 ## [0.26.11] - 2025-02-04
 
 ### Features
