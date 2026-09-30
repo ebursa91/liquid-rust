@@ -140,3 +140,102 @@ fn test_multiline_variable() {
 fn test_render_symbol() {
     panic!("Symbols are implementation specific");
 }
+
+#[test]
+fn question_mark_properties_render_and_participate_in_conditions() {
+    let parser = liquid::ParserBuilder::with_stdlib().build().unwrap();
+    let globals = liquid::object!({"font":{"system?":true}, "enabled?":false});
+    let source = "{{ font.system? }}|{{ enabled? }}|{% unless font.system? %}remote{% else %}local{% endunless %}";
+    assert_eq!(
+        parser.parse(source).unwrap().render(&globals).unwrap(),
+        "true|false|local"
+    );
+}
+
+#[test]
+fn literal_prefixes_do_not_split_identifiers() {
+    let parser = liquid::ParserBuilder::with_stdlib().build().unwrap();
+    for name in [
+        "empty_cart_drawer_content",
+        "blank_label",
+        "nil_image",
+        "null_state",
+        "true_flag",
+        "false_flag",
+    ] {
+        let source = format!("{{% capture {name} %}}captured{{% endcapture %}}{{{{ {name} }}}}");
+        assert_eq!(
+            parser
+                .parse(&source)
+                .unwrap()
+                .render(&liquid::object!({}))
+                .unwrap(),
+            "captured",
+            "{source}"
+        );
+    }
+    assert_eq!(
+        parser
+            .parse("left {{- nil -}} right|{{ true }}|{{ false }}")
+            .unwrap()
+            .render(&liquid::object!({}))
+            .unwrap(),
+        "leftright|true|false"
+    );
+}
+
+#[test]
+fn literal_names_with_selectors_are_object_lookups() {
+    let parser = liquid::ParserBuilder::with_stdlib().build().unwrap();
+    let globals = liquid::object!({"nil":{"field":"selected"},"null":{"field":"selected"},"empty":{"field":"selected"},"blank":{"field":"selected"},"true":{"field":"selected"},"false":{"field":"selected"},"nil?":"question"});
+    for name in ["nil", "null", "empty", "blank", "true", "false"] {
+        for source in [
+            format!("{{{{ {name}.field }}}}"),
+            format!("{{{{ {name}['field'] }}}}"),
+            format!("{{% assign value = {name}.field %}}{{{{ value }}}}"),
+            format!("{{% if {name}.field %}}selected{{% else %}}wrong{{% endif %}}"),
+        ] {
+            assert_eq!(
+                parser.parse(&source).unwrap().render(&globals).unwrap(),
+                "selected",
+                "{source}"
+            );
+        }
+    }
+    assert_eq!(
+        parser
+            .parse("{{ nil? }}")
+            .unwrap()
+            .render(&globals)
+            .unwrap(),
+        "question"
+    );
+}
+
+#[test]
+fn question_mark_lookup_names_are_not_assignment_declarations() {
+    let parser = liquid::ParserBuilder::with_stdlib().build().unwrap();
+    for source in [
+        "{% assign nil? = 'assigned' %}",
+        "{% assign enabled? = true %}",
+    ] {
+        assert!(parser.parse(source).is_err(), "accepted {source}");
+    }
+}
+
+#[test]
+fn keyword_literals_remain_literals_before_range_delimiters() {
+    let mut tag = liquid_core::parser::Tag::new("{% range (nil..2) %}").unwrap();
+    let (start, end) = tag
+        .tokens()
+        .expect_next("range")
+        .unwrap()
+        .expect_range()
+        .into_result()
+        .unwrap();
+    assert_eq!(
+        start,
+        liquid_core::Expression::Literal(liquid_core::Value::Nil)
+    );
+    assert_eq!(end, liquid_core::Expression::with_literal(2i64));
+}

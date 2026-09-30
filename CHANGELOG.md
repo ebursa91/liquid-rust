@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- next-header -->
 ## [Unreleased] - ReleaseDate
 
+### Features
+
+- Support liquid, echo and inline comments, ASCII tag whitespace and question-mark property lookup.
+
+### Fixes
+
+- Keep literal-prefix variable names and property selectors distinct from literal values.
+
 ## [0.26.11] - 2025-02-04
 
 ### Features

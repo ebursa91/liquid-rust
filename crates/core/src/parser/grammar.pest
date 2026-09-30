@@ -1,4 +1,4 @@
-WHITESPACE = _{" " | NEWLINE }
+WHITESPACE = _{" " | "\t" | "\u{000B}" | "\u{000C}" | NEWLINE }
 NON_WHITESPACE_CONTROL_HYPHEN = _{ !"-}}" ~ !"-%}" ~ "-" }
 // Lax liquid file won't raise errors. This allows blocks to override
 // liquid rules and parse their content on their own.
@@ -13,7 +13,15 @@ Element = _{ Expression | Tag | Raw }
 
 TagStart = _{ (WHITESPACE* ~ "{%-") | "{%" }
 TagEnd =   _{ ("-%}" ~ WHITESPACE*) | "%}" }
-TagInner = !{Identifier ~ TagToken*}
+// The liquid tag owns its line-oriented syntax. Preserve its body as one token
+// rather than letting normal tag tokenization erase statement boundaries.
+LiquidTagName = @{ "liquid" ~ &(" " | "\t" | "\r" | "\n" | "\u{000B}" | "\u{000C}" | TagEnd) }
+LiquidTagBody = @{ (!("-%}" | "%}") ~ ANY)* }
+InlineCommentName = @{ "#" }
+InlineCommentBody = @{ (!("-%}" | "%}") ~ ANY)* }
+LiquidTagInner = ${ LiquidTagName ~ LiquidTagBody }
+InlineCommentInner = ${ InlineCommentName ~ InlineCommentBody }
+TagInner = !{ LiquidTagInner | InlineCommentInner | (Identifier ~ TagToken*) }
 ExpressionStart = _{ (WHITESPACE* ~ "{{-") | "{{" }
 ExpressionEnd =   _{ ("-}}" ~ WHITESPACE*) | "}}" }
 ExpressionInner = !{FilterChain}
@@ -29,8 +37,10 @@ Raw = @{ (!(TagStart | ExpressionStart) ~ ANY)+ }
 // Inner parsing
 Identifier = @{ (ASCII_ALPHA | "_" | NON_WHITESPACE_CONTROL_HYPHEN) ~ (ASCII_ALPHANUMERIC | "_" | NON_WHITESPACE_CONTROL_HYPHEN)* }
 
-Variable = ${ Identifier
-            ~ ( ("." ~ Identifier)
+// Liquid object properties can use a trailing question mark (e.g. system?).
+VariableIdentifier = @{ (ASCII_ALPHA | "_" | NON_WHITESPACE_CONTROL_HYPHEN) ~ (ASCII_ALPHANUMERIC | "_" | NON_WHITESPACE_CONTROL_HYPHEN)* ~ "?"? }
+Variable = ${ VariableIdentifier
+            ~ ( ("." ~ VariableIdentifier)
               | ("[" ~ WHITESPACE* ~ Value ~ WHITESPACE* ~ "]")
               )*
             }
@@ -42,16 +52,18 @@ KeywordFilterArgument = {Identifier ~ ":" ~ Value}
 FilterArgument = _{KeywordFilterArgument | PositionalFilterArgument }
 
 // Literals
-NilLiteral = @{ "nil" | "null" }
-EmptyLiteral = @{ "empty" }
-BlankLiteral = @{ "blank" }
+// A keyword followed by a selector is an object lookup, while .. closes a range operand.
+KeywordBoundary = _{ !(ASCII_ALPHANUMERIC | "_" | NON_WHITESPACE_CONTROL_HYPHEN | "?" | ("." ~ !".") | "[") }
+NilLiteral = @{ ("nil" | "null") ~ KeywordBoundary }
+EmptyLiteral = @{ "empty" ~ KeywordBoundary }
+BlankLiteral = @{ "blank" ~ KeywordBoundary }
 StringLiteral = @{ ("'" ~ (!"'" ~ ANY)* ~ "'")
 		        		 | ("\"" ~ (!"\"" ~ ANY)* ~ "\"") }
 
 IntegerLiteral = @{ ("+" | "-")? ~ ASCII_DIGIT+ }
 FloatLiteral = @{ ("+" | "-")? ~ ASCII_DIGIT+ ~ "." ~ ASCII_DIGIT+ }
 
-BooleanLiteral = @{ "true" | "false" }
+BooleanLiteral = @{ ("true" | "false") ~ KeywordBoundary }
 
 Literal = { NilLiteral | EmptyLiteral | BlankLiteral | StringLiteral | FloatLiteral | IntegerLiteral | BooleanLiteral }
 

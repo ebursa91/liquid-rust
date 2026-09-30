@@ -149,7 +149,7 @@ fn parse_variable_pair(variable: Pair) -> Variable {
     let mut variable = Variable::with_literal(first_identifier);
 
     let indexes = indexes.map(|index| match index.as_rule() {
-        Rule::Identifier => Expression::with_literal(index.as_str().to_owned()),
+        Rule::VariableIdentifier => Expression::with_literal(index.as_str().to_owned()),
         Rule::Value => parse_value(index),
         _ => unreachable!(),
     });
@@ -297,35 +297,13 @@ impl<'a, 'b> TagBlock<'a, 'b> {
 
         // Tags are treated separately so as to check for a possible `{% endtag %}`
         if element.as_rule() == Rule::Tag {
-            let as_str = element.as_str();
-            let mut tag = element
-                .into_inner()
-                .next()
-                .expect("Unwrapping TagInner")
-                .into_inner();
-            let name = tag.next().expect("Tags start by their identifier.");
-            let name_str = name.as_str();
-
-            // Check if this tag is the same as the block's reflected end-tag.
-            if name_str == self.end_tag {
-                // Then this is a block ending tag and will close the block.
-
-                // no more arguments should be supplied, trying to supply them is an error
-                if let Some(token) = tag.next() {
-                    return TagToken::from(token).raise_error().into_err();
-                }
-
+            let mut tag = Tag::from(element);
+            if tag.name() == self.end_tag {
+                tag.tokens().expect_nothing()?;
                 self.closed = true;
                 return Ok(None);
-            } else {
-                // Then this is a regular tag
-                let tokens = TagTokenIter::new(&name, tag);
-                return Ok(Some(BlockElement::Tag(Tag {
-                    name,
-                    tokens,
-                    as_str,
-                })));
             }
+            return Ok(Some(BlockElement::Tag(tag)));
         }
         Ok(Some(element.into()))
     }
@@ -372,19 +350,15 @@ impl<'a, 'b> TagBlock<'a, 'b> {
 
             // Tags are potentially `{% endtag %}`
             if element.as_rule() == Rule::Tag {
-                let mut tag = element
-                    .into_inner()
-                    .next()
-                    .expect("Unwrapping TagInner")
-                    .into_inner();
-                let name = tag.next().expect("Tags start by their identifier.");
-                let name_str = name.as_str();
+                let mut tag = Tag::from(element);
+                let is_end = tag.name() == self.end_tag;
+                let is_start = tag.name() == self.start_tag;
 
                 // Check if this tag is the same as the block's reflected end-tag.
-                if name_str == self.end_tag {
+                if is_end {
                     // No more arguments should be supplied. If they are, it is
                     // assumed not to be a tag closer.
-                    if tag.next().is_none() {
+                    if tag.tokens().next().is_none() {
                         nesting_level -= 1;
                         if nesting_level == 0 {
                             self.closed = true;
@@ -397,7 +371,7 @@ impl<'a, 'b> TagBlock<'a, 'b> {
                             return Ok(output);
                         }
                     }
-                } else if name_str == self.start_tag && allow_nesting {
+                } else if is_start && allow_nesting {
                     // Going deeper in the nested blocks.
                     nesting_level += 1;
                 }
@@ -491,7 +465,16 @@ impl<'a> From<Pair<'a>> for Tag<'a> {
             .next()
             .expect("Unwrapping TagInner.")
             .into_inner();
-        let name = tag.next().expect("A tag starts with an identifier.");
+        let first = tag.next().expect("A tag starts with an identifier.");
+        let name = if matches!(
+            first.as_rule(),
+            Rule::LiquidTagInner | Rule::InlineCommentInner
+        ) {
+            tag = first.into_inner();
+            tag.next().expect("A tag starts with an identifier.")
+        } else {
+            first
+        };
         let tokens = TagTokenIter::new(&name, tag);
 
         Tag {
@@ -924,8 +907,8 @@ impl<'a> TagToken<'a> {
         let identifier = indexes
             .next()
             .expect("Unwrapping identifier out of variable.");
-        if indexes.next().is_some() {
-            // There are indexes: it can't be a value
+        if indexes.next().is_some() || identifier.as_str().ends_with('?') {
+            // Properties can use ?, but declarations require a plain identifier.
             return Err(());
         }
 
@@ -1047,6 +1030,11 @@ impl<'a> TagToken<'a> {
     /// Returns token as a str.
     pub fn as_str(&self) -> &str {
         self.token.as_str().trim()
+    }
+
+    /// Returns the token's original text, preserving whitespace and line boundaries.
+    pub fn as_raw_str(&self) -> &str {
+        self.token.as_str()
     }
 }
 
