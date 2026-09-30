@@ -133,7 +133,7 @@ impl Filter for StripHtmlFilter {
 #[derive(Clone, ParseFilter, FilterReflection)]
 #[filter(
     name = "newline_to_br",
-    description = "Replaces every newline (`\\n`) with an HTML line break (`<br>`).",
+    description = "Replaces every newline (`\\n` or `\\r\\n`) with an HTML line break (`<br>`).",
     parsed(NewlineToBrFilter)
 )]
 pub struct NewlineToBr;
@@ -144,9 +144,17 @@ struct NewlineToBrFilter;
 
 impl Filter for NewlineToBrFilter {
     fn evaluate(&self, input: &dyn ValueView, _runtime: &dyn Runtime) -> Result<Value> {
-        // TODO handle windows line endings
         let input = input.to_kstr();
-        Ok(Value::scalar(input.replace('\n', "<br />\n")))
+        let mut result = String::with_capacity(input.len());
+        let mut last_end = 0;
+        for (start, _) in input.match_indices('\n') {
+            let line = &input[last_end..start];
+            result.push_str(line.strip_suffix('\r').unwrap_or(line));
+            result.push_str("<br />\n");
+            last_end = start + 1;
+        }
+        result.push_str(&input[last_end..]);
+        Ok(Value::scalar(result))
     }
 }
 
@@ -250,6 +258,26 @@ mod tests {
             liquid_core::call_filter!(NewlineToBr, "\nHello\nWorld\n").unwrap(),
             liquid_core::value!("<br />\nHello<br />\nWorld<br />\n")
         );
+    }
+
+    #[test]
+    fn unit_newline_to_br_line_endings() {
+        for (input, expected) in [
+            ("a\r\nb\nc", "a<br />\nb<br />\nc"),
+            ("\r\n", "<br />\n"),
+            ("\r\n\n\r\n", "<br />\n<br />\n<br />\n"),
+            ("\r\r\n", "\r<br />\n"),
+            ("\n\r", "<br />\n\r"),
+            ("a\rb\r", "a\rb\r"),
+            ("α\r\nβ\n終", "α<br />\nβ<br />\n終"),
+            ("", ""),
+        ] {
+            assert_eq!(
+                liquid_core::call_filter!(NewlineToBr, input).unwrap(),
+                liquid_core::value!(expected),
+                "input: {input:?}",
+            );
+        }
     }
 
     #[test]
