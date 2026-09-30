@@ -1332,3 +1332,54 @@ fn test_where_no_target_value() {
         call_filter!(liquid_lib::stdlib::Where, input, v!("foo")).unwrap()
     );
 }
+
+#[test]
+fn default_allow_false_preserves_false_without_preserving_empty_values() {
+    let parser = liquid::ParserBuilder::with_stdlib().build().unwrap();
+    let globals =
+        liquid::object!({"fallback": "fallback", "keep": true, "reject": false, "items": []});
+    for (source, expected) in [
+        ("{{ false | default: fallback }}", "fallback"),
+        (
+            "{{ false | default: fallback, allow_false: keep }}",
+            "false",
+        ),
+        (
+            "{{ false | default: fallback, allow_false: reject }}",
+            "fallback",
+        ),
+        (
+            "{{ false | default: fallback, allow_false: nil }}",
+            "fallback",
+        ),
+        ("{{ false | default: fallback, allow_false: 0 }}", "false"),
+        ("{{ false | default: fallback, allow_false: '' }}", "false"),
+        (
+            "{{ false | default: fallback, allow_false: empty }}",
+            "false",
+        ),
+        (
+            "{{ false | default: fallback, allow_false: blank }}",
+            "false",
+        ),
+        (
+            "{{ nil | default: fallback, allow_false: true }}",
+            "fallback",
+        ),
+        (
+            "{{ '' | default: fallback, allow_false: true }}",
+            "fallback",
+        ),
+        (
+            "{{ items | default: fallback, allow_false: true }}",
+            "fallback",
+        ),
+        ("{{ 0 | default: fallback, allow_false: true }}", "0"),
+    ] {
+        assert_eq!(
+            parser.parse(source).unwrap().render(&globals).unwrap(),
+            expected,
+            "{source}"
+        );
+    }
+}

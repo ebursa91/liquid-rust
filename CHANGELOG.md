@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Features
 
 - Support liquid, echo and inline comments, ASCII tag whitespace and question-mark property lookup.
+- Support the default filter allow_false keyword.
 
 ### Fixes
 
