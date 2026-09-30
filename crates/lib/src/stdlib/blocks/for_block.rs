@@ -678,7 +678,7 @@ mod test {
             ]),
         );
         let output = template.render(&runtime).unwrap();
-        assert_eq!(output, "test 22 test 23 test 24 test wat ");
+        assert_eq!(output, "test 22.0 test 23.0 test 24.0 test wat ");
     }
 
     #[test]
@@ -1004,7 +1004,7 @@ mod test {
             ]),
         );
         let output = template.render(&runtime).unwrap();
-        assert_eq!(output, "<tr class=\"row1\"><td class=\"col1\">test 22 </td><td class=\"col2\">test 23 </td><td class=\"col3\">test 24 </td><td class=\"col4\">test wat </td></tr>");
+        assert_eq!(output, "<tr class=\"row1\"><td class=\"col1\">test 22.0 </td><td class=\"col2\">test 23.0 </td><td class=\"col3\">test 24.0 </td><td class=\"col4\">test wat </td></tr>");
     }
 
     #[test]

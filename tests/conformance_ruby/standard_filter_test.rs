@@ -1008,7 +1008,6 @@ fn test_newlines_to_br() {
 }
 
 #[test]
-#[should_panic] // liquid-rust#260
 fn test_plus() {
     assert_template_result!("2", r#"{{ 1 | plus:1 }}"#);
     assert_template_result!("2.0", r#"{{ "1" | plus:"1.0" }}"#);

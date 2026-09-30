@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Keep literal-prefix variable names and property selectors distinct from literal values.
 - Match Ruby Liquid right-associated and/or conditions.
+- Render integral floats, signed zero and scientific exponents in Ruby style.
+- Multiply fractional decimal operands before converting to a float.
+- Preserve selected numeric clamp types and coerce nil multiplication operands to zero.
 
 ## [0.26.11] - 2025-02-04
 

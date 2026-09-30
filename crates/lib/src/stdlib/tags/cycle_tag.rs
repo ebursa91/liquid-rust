@@ -236,7 +236,7 @@ mod test {
 
         let output = template.render(&runtime);
 
-        assert_eq!(output.unwrap(), "1\n2\n3\n1\n");
+        assert_eq!(output.unwrap(), "1.0\n2.0\n3.0\n1.0\n");
     }
 
     #[test]

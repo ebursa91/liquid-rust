@@ -1,5 +1,7 @@
 use std::convert::TryInto;
 
+use bigdecimal::BigDecimal;
+
 use liquid_core::Expression;
 use liquid_core::Result;
 use liquid_core::Runtime;
@@ -74,9 +76,20 @@ impl Filter for AtLeastFilter {
             .to_integer()
             .and_then(|i| min.to_integer().map(|min| Value::scalar(i.max(min))))
             .or_else(|| {
-                input
-                    .to_float()
-                    .and_then(|i| min.to_float().map(|min| Value::scalar(i.max(min))))
+                input.to_float().and_then(|i| {
+                    min.to_float().map(|bound| {
+                        if bound > i {
+                            min.to_integer()
+                                .map(Value::scalar)
+                                .unwrap_or_else(|| Value::scalar(bound))
+                        } else {
+                            input
+                                .to_integer()
+                                .map(Value::scalar)
+                                .unwrap_or_else(|| Value::scalar(i))
+                        }
+                    })
+                })
             })
             .ok_or_else(|| invalid_argument("operand", "Number expected"))?;
 
@@ -123,9 +136,20 @@ impl Filter for AtMostFilter {
             .to_integer()
             .and_then(|i| max.to_integer().map(|max| Value::scalar(i.min(max))))
             .or_else(|| {
-                input
-                    .to_float()
-                    .and_then(|i| max.to_float().map(|max| Value::scalar(i.min(max))))
+                input.to_float().and_then(|i| {
+                    max.to_float().map(|bound| {
+                        if bound < i {
+                            max.to_integer()
+                                .map(Value::scalar)
+                                .unwrap_or_else(|| Value::scalar(bound))
+                        } else {
+                            input
+                                .to_integer()
+                                .map(Value::scalar)
+                                .unwrap_or_else(|| Value::scalar(i))
+                        }
+                    })
+                })
             })
             .ok_or_else(|| invalid_argument("operand", "Number expected"))?;
 
@@ -259,24 +283,57 @@ impl Filter for TimesFilter {
 
         let input = input
             .as_scalar()
+            .or_else(|| {
+                input
+                    .is_nil()
+                    .then(|| liquid_core::model::ScalarCow::new(0i64))
+            })
             .ok_or_else(|| invalid_input("Number expected"))?;
 
         let operand = args
             .operand
             .as_scalar()
+            .or_else(|| {
+                args.operand
+                    .is_nil()
+                    .then(|| liquid_core::model::ScalarCow::new(0i64))
+            })
             .ok_or_else(|| invalid_argument("operand", "Number expected"))?;
 
         let result = input
             .to_integer()
             .and_then(|i| operand.to_integer().map(|o| Value::scalar(i * o)))
             .or_else(|| {
-                input
-                    .to_float()
-                    .and_then(|i| operand.to_float().map(|o| Value::scalar(i * o)))
+                let i = input.to_float()?;
+                let o = operand.to_float()?;
+                if !i.is_finite() || !o.is_finite() || i == 0.0 || o == 0.0 {
+                    // Decimal numbers do not retain signed zero or non-finite values.
+                    return Some(Value::scalar(i * o));
+                }
+
+                // Liquid converts floats from their decimal strings before arithmetic,
+                // then converts the decimal product back to a float.
+                let i = times_decimal(&input)?;
+                let o = times_decimal(&operand)?;
+                (i * o)
+                    .to_scientific_notation()
+                    .parse::<f64>()
+                    .ok()
+                    .map(Value::scalar)
             })
             .ok_or_else(|| invalid_argument("operand", "Number expected"))?;
 
         Ok(result)
+    }
+}
+
+// Arithmetic needs the canonical shortest decimal, independent of display formatting.
+fn times_decimal(input: &liquid_core::model::ScalarCow<'_>) -> Option<BigDecimal> {
+    if input.type_name() == "fractional number" {
+        let mut buffer = ryu::Buffer::new();
+        buffer.format_finite(input.to_float()?).parse().ok()
+    } else {
+        input.to_kstr().as_str().parse().ok()
     }
 }
 
@@ -616,6 +673,16 @@ mod tests {
     }
 
     #[test]
+    fn times_uses_decimal_multiplication_before_float_conversion() {
+        for (input, operand, expected) in [(3.5, 1.6, 5.6), (3.0, 1.6, 4.8), (0.1, 0.2, 0.02)] {
+            assert_eq!(
+                liquid_core::call_filter!(Times, input, operand).unwrap(),
+                Value::scalar(expected)
+            );
+        }
+    }
+
+    #[test]
     fn unit_modulo() {
         assert_eq!(
             liquid_core::call_filter!(Modulo, 3_f64, 2_f64).unwrap(),
@@ -706,6 +773,84 @@ mod tests {
         assert_eq!(
             liquid_core::call_filter!(Round, 1.23456f64, 3i64).unwrap(),
             Value::scalar(1.235f64)
+        );
+    }
+    #[test]
+    fn times_coerces_nil_to_numeric_zero() {
+        assert_eq!(
+            liquid_core::call_filter!(Times, Value::Nil, Value::scalar(3)).unwrap(),
+            Value::scalar(0)
+        );
+        assert_eq!(
+            liquid_core::call_filter!(Times, Value::Nil, Value::scalar(1.0))
+                .unwrap()
+                .as_scalar()
+                .unwrap()
+                .to_float(),
+            Some(0.0)
+        );
+        assert_eq!(
+            liquid_core::call_filter!(Times, Value::scalar(7), Value::Nil).unwrap(),
+            Value::scalar(0)
+        );
+        assert_eq!(
+            liquid_core::call_filter!(Times, Value::scalar(-2.5), Value::Nil)
+                .unwrap()
+                .as_scalar()
+                .unwrap()
+                .to_float(),
+            Some(-0.0)
+        );
+    }
+    #[test]
+    fn clamp_preserves_selected_numeric_type_including_equal_bounds() {
+        assert_eq!(
+            liquid_core::call_filter!(AtLeast, 4.5, 5)
+                .unwrap()
+                .as_scalar()
+                .unwrap()
+                .to_integer(),
+            Some(5)
+        );
+        assert_eq!(
+            liquid_core::call_filter!(AtLeast, 5.0, 5)
+                .unwrap()
+                .render()
+                .to_string(),
+            "5.0"
+        );
+        assert_eq!(
+            liquid_core::call_filter!(AtMost, 5, 5.0)
+                .unwrap()
+                .as_scalar()
+                .unwrap()
+                .to_integer(),
+            Some(5)
+        );
+        assert_eq!(
+            liquid_core::call_filter!(AtMost, 5.5, 5)
+                .unwrap()
+                .as_scalar()
+                .unwrap()
+                .to_integer(),
+            Some(5)
+        );
+    }
+    #[test]
+    fn clamp_keeps_input_when_comparison_with_nan_is_false() {
+        assert_eq!(
+            liquid_core::call_filter!(AtLeast, f64::NAN, 5)
+                .unwrap()
+                .render()
+                .to_string(),
+            "NaN"
+        );
+        assert_eq!(
+            liquid_core::call_filter!(AtMost, 3, f64::NAN)
+                .unwrap()
+                .render()
+                .to_string(),
+            "3"
         );
     }
 }

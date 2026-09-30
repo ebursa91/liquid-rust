@@ -321,8 +321,8 @@ mod test {
     #[test]
     fn test_to_string_scalar() {
         let val = Value::scalar(42f64);
-        assert_eq!(&val.render().to_string(), "42");
-        assert_eq!(&val.to_kstr(), "42");
+        assert_eq!(&val.render().to_string(), "42.0");
+        assert_eq!(&val.to_kstr(), "42.0");
     }
 
     #[test]
@@ -332,8 +332,8 @@ mod test {
             Value::scalar("test"),
             Value::scalar(5.3),
         ]);
-        assert_eq!(&val.render().to_string(), "3test5.3");
-        assert_eq!(&val.to_kstr(), "3test5.3");
+        assert_eq!(&val.render().to_string(), "3.0test5.3");
+        assert_eq!(&val.to_kstr(), "3.0test5.3");
     }
 
     // TODO make a test for object, remember values are in arbitrary orders in HashMaps

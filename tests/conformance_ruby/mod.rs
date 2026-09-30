@@ -23,3 +23,6 @@ mod variable_test;
 
 #[cfg(feature = "stdlib")]
 mod find_index_test;
+
+#[cfg(feature = "stdlib")]
+mod math_decimal_test;

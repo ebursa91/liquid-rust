@@ -122,7 +122,7 @@ mod test {
         let output = template.render(&rt).unwrap();
         assert_eq!(
             rt.get(&[Scalar::new("attribute_name")]).unwrap(),
-            "potato-42-color"
+            "potato-42.0-color"
         );
         assert_eq!(output, "");
     }

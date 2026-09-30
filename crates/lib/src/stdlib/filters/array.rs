@@ -812,7 +812,7 @@ mod tests {
         let input = liquid_core::value!(["a", "b", "c"]);
         assert_eq!(
             liquid_core::call_filter!(Join, input, 1f64).unwrap(),
-            "a1b1c"
+            "a1.0b1.0c"
         );
     }
 
@@ -827,7 +827,7 @@ mod tests {
         let input = liquid_core::value!(["a", 1f64, "c"]);
         assert_eq!(
             liquid_core::call_filter!(Join, input, ",").unwrap(),
-            liquid_core::value!("a,1,c")
+            liquid_core::value!("a,1.0,c")
         );
     }
 

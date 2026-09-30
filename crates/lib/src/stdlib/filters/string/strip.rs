@@ -119,7 +119,7 @@ mod tests {
     fn unit_lstrip_non_string() {
         assert_eq!(
             liquid_core::call_filter!(Lstrip, 0f64).unwrap(),
-            liquid_core::value!("0")
+            liquid_core::value!("0.0")
         );
     }
 
@@ -182,7 +182,7 @@ mod tests {
     fn unit_rstrip_non_string() {
         assert_eq!(
             liquid_core::call_filter!(Rstrip, 0f64).unwrap(),
-            liquid_core::value!("0")
+            liquid_core::value!("0.0")
         );
     }
 
@@ -221,7 +221,7 @@ mod tests {
     fn unit_strip_non_string() {
         assert_eq!(
             liquid_core::call_filter!(Strip, 0f64).unwrap(),
-            liquid_core::value!("0")
+            liquid_core::value!("0.0")
         );
     }
 
@@ -276,7 +276,7 @@ mod tests {
     fn unit_strip_newlines_non_string() {
         assert_eq!(
             liquid_core::call_filter!(StripNewlines, 0f64).unwrap(),
-            liquid_core::value!("0")
+            liquid_core::value!("0.0")
         );
     }
 

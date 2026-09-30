@@ -46,7 +46,7 @@ let globals = liquid::object!({
 });
 
 let output = template.render(&globals).unwrap();
-assert_eq!(output, "Liquid! 2".to_string());
+assert_eq!(output, "Liquid! 2.0".to_string());
 ```
 
 You can find a reference on Liquid syntax [here](https://github.com/Shopify/liquid/wiki/Liquid-for-Designers).
