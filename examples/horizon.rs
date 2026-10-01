@@ -5,7 +5,7 @@ use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
-use std::io::Write;
+use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
@@ -2360,11 +2360,183 @@ fn benchmark(
     }))
 }
 
+// The serving worker is bounded to the independently verified synthetic homepage.
+// Only parsed/source caches persist: every response evaluates a fresh request.
+const MAX_REQUEST_LINE_BYTES: usize = 4096;
+const MAX_PROTOCOL_HEADER_BYTES: usize = 4096;
+const HORIZON_THEME_SHA: &str = "5acd1b6b66c02f61d3216e3adace5dd9e0404fc9";
+type WorkerResult<T> = std::result::Result<T, Box<dyn std::error::Error>>;
+
+struct RenderOracle {
+    html: Json,
+    css: Json,
+}
+
+impl RenderOracle {
+    fn pinned_homepage() -> Self {
+        Self {
+            html: json!({"bytes":435304,"sha256":"d97c35b3ba08f026536cb4c469623acb9957af59fb9a9171db012958515fe990"}),
+            css: json!({"bytes":279112,"sha256":"67a6538e0b763c32ced001728ebf68f375dec497d4fb91c0ee136658ff9f2034"}),
+        }
+    }
+
+    fn verify(&self, output: &RenderOutput) -> WorkerResult<()> {
+        output.ensure_success()?;
+        if digest(&output.html) != self.html || digest(output.css.as_bytes()) != self.css {
+            return Err("Serving output differs from the independent homepage oracle".into());
+        }
+        Ok(())
+    }
+
+    fn verify_sizes(&self, output: &RenderOutput) -> WorkerResult<()> {
+        output.ensure_success()?;
+        if self.html["bytes"].as_u64() != Some(output.html.len() as u64)
+            || self.css["bytes"].as_u64() != Some(output.css.len() as u64)
+        {
+            return Err("Serving output sizes differ from the independent homepage oracle".into());
+        }
+        Ok(())
+    }
+}
+
+fn write_protocol_header(writer: &mut impl Write, header: &Json) -> WorkerResult<()> {
+    let serialized = serde_json::to_vec(header)?;
+    if serialized.len() >= MAX_PROTOCOL_HEADER_BYTES {
+        return Err("Worker protocol header exceeds 4096 bytes".into());
+    }
+    writer.write_all(&serialized)?;
+    writer.write_all(b"\n")?;
+    Ok(())
+}
+
+fn write_worker_error(
+    writer: &mut impl Write,
+    request_id: Option<u64>,
+    error: &dyn fmt::Display,
+) -> WorkerResult<()> {
+    // Bound diagnostics too; JSON escapes newlines so the frame stays on one line.
+    let message = error.to_string().chars().take(512).collect::<String>();
+    write_protocol_header(
+        writer,
+        &json!({"request_id":request_id,"html_bytes":0,"css_bytes":0,"error":message}),
+    )?;
+    writer.flush()?;
+    Ok(())
+}
+
+fn read_worker_request(reader: &mut impl BufRead) -> WorkerResult<Option<u64>> {
+    let mut line = Vec::new();
+    // Limit read_until itself, rather than allocating an unbounded malformed line.
+    let bytes = reader
+        .by_ref()
+        .take((MAX_REQUEST_LINE_BYTES + 1) as u64)
+        .read_until(b'\n', &mut line)?;
+    if bytes == 0 {
+        return Ok(None);
+    }
+    if bytes > MAX_REQUEST_LINE_BYTES {
+        return Err("Worker request line exceeds 4096 bytes".into());
+    }
+    if !line.ends_with(b"\n") {
+        return Err("Worker request must end with a newline".into());
+    }
+    let request: Json = serde_json::from_slice(&line)?;
+    let object = request
+        .as_object()
+        .ok_or("Worker request must be an object")?;
+    if object.len() != 2 || request["action"] != "render" {
+        return Err("Worker request requires only action=render and request_id".into());
+    }
+    let id = request["request_id"]
+        .as_u64()
+        .ok_or("Worker request_id must be an integer between 0 and 18446744073709551615")?;
+    Ok(Some(id))
+}
+
+fn write_render_response(
+    writer: &mut impl Write,
+    request_id: u64,
+    rendered: WorkerResult<RenderOutput>,
+    oracle: &RenderOracle,
+) -> WorkerResult<()> {
+    let checked = rendered.and_then(|output| {
+        // The common HTTP load client hashes every response. Both worker engines
+        // check sizes here; startup warmups verify the independent SHA256 oracle.
+        oracle.verify_sizes(&output)?;
+        Ok(output)
+    });
+    let output = match checked {
+        Ok(output) => output,
+        Err(error) => {
+            write_worker_error(writer, Some(request_id), &error)?;
+            return Err(error);
+        }
+    };
+    write_protocol_header(
+        writer,
+        &json!({"request_id":request_id,"html_bytes":output.html.len(),"css_bytes":output.css.len(),"error":null}),
+    )?;
+    writer.write_all(&output.html)?;
+    writer.write_all(output.css.as_bytes())?;
+    writer.flush()?;
+    Ok(())
+}
+
+fn serve_stdio(
+    renderer: &mut Renderer,
+    scope: &str,
+    warmup: usize,
+    oracle: &RenderOracle,
+    reader: &mut impl BufRead,
+    writer: &mut impl Write,
+) -> WorkerResult<()> {
+    if warmup == 0 {
+        let error = "--warmup must be positive to prime lazy AST caches";
+        write_worker_error(writer, None, &error)?;
+        return Err(error.into());
+    }
+    for _ in 0..warmup {
+        let warmed = renderer.render(scope, None).map_err(Into::into);
+        let checked = warmed.and_then(|output| oracle.verify(&output));
+        if let Err(error) = checked {
+            write_worker_error(writer, None, &error)?;
+            return Err(error);
+        }
+    }
+    write_protocol_header(
+        writer,
+        &json!({"action":"ready","schema_version":1,"engine":"liquid-rust",
+            "theme_sha":renderer.context.fixture["theme"]["sha"],
+            "fixture_sha256":renderer.fixture_sha256,"warmup":warmup,
+            "build_profile":if cfg!(debug_assertions) {"debug"} else {"release"},
+            "release":!cfg!(debug_assertions),"response_cache":false,"correctness_verified":true,
+            "scope":scope,"page":renderer.page,"html":oracle.html,"css":oracle.css}),
+    )?;
+    writer.flush()?;
+    loop {
+        let id = match read_worker_request(reader) {
+            Ok(Some(id)) => id,
+            Ok(None) => return Ok(()),
+            Err(error) => {
+                write_worker_error(writer, None, &error)?;
+                return Err(error);
+            }
+        };
+        let rendered = renderer.render(scope, None).map_err(Into::into);
+        write_render_response(writer, id, rendered, oracle)?;
+    }
+}
+
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut options = BTreeMap::new();
     let mut arguments = std::env::args().skip(1);
     while let Some(key) = arguments.next() {
-        options.insert(key, arguments.next().ok_or("Each option requires a value")?);
+        let value = if key == "--serve-stdio" {
+            "true".to_owned()
+        } else {
+            arguments.next().ok_or("Each option requires a value")?
+        };
+        options.insert(key, value);
     }
     let theme = PathBuf::from(
         options
@@ -2379,23 +2551,65 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .ok_or("--fixture is required")?,
     );
     let page = options.get("--page").map(String::as_str).unwrap_or("index");
-    let scope = options.get("--scope").map(String::as_str).unwrap_or("hero");
+    let serving = options.contains_key("--serve-stdio");
+    let scope = options
+        .get("--scope")
+        .map(String::as_str)
+        .unwrap_or(if serving { "page" } else { "hero" });
     if !["hero", "template", "page"].contains(&scope) {
         return Err("Unsupported scope".into());
     }
-    if !options.contains_key("--output-dir") && !options.contains_key("--benchmark-json") {
+    if serving
+        && (scope != "page"
+            || page != "index"
+            || [
+                "--only",
+                "--parse-source",
+                "--benchmark-json",
+                "--output-dir",
+            ]
+            .iter()
+            .any(|key| options.contains_key(*key)))
+    {
+        return Err(
+            "--serve-stdio requires the complete index page and no artifact/diagnostic options"
+                .into(),
+        );
+    }
+    if !serving
+        && !options.contains_key("--output-dir")
+        && !options.contains_key("--benchmark-json")
+    {
         return Err("--output-dir is required".into());
     }
     if let Some(path) = options.get("--benchmark-json") {
         match fs::remove_file(path) {
             Ok(()) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
         }
     }
     let start = Instant::now();
     let mut renderer = Renderer::new(theme, &store, page, options.contains_key("--parse-source"))?;
     let initialization_ms = start.elapsed().as_secs_f64() * 1000.0;
+    if serving {
+        if renderer.context.fixture["theme"]["sha"] != HORIZON_THEME_SHA {
+            return Err("Serving fixture theme SHA does not match the pin".into());
+        }
+        let warmup = options
+            .get("--warmup")
+            .map(String::as_str)
+            .unwrap_or("50")
+            .parse::<usize>()?;
+        return serve_stdio(
+            &mut renderer,
+            scope,
+            warmup,
+            &RenderOracle::pinned_homepage(),
+            &mut io::stdin().lock(),
+            &mut io::stdout().lock(),
+        );
+    }
     if let Some(name) = options.get("--parse-source") {
         renderer.parse_source(name)?;
         println!("Parsed {name}");
@@ -2799,6 +3013,184 @@ mod tests {
             .to_string()
             .contains("--warmup"));
     }
+    fn served_fixture() -> (Renderer, RenderOracle, &'static [u8], &'static str) {
+        let renderer = prepared(
+            &[("sections/sample", "{% stylesheet %}.fresh {}{% endstylesheet %}{{ section.id }}:{% increment counter %}{% schema %}{}{% endschema %}"),
+              ("layout/theme", "{{ content_for_header }}{{ content_for_layout }}")],
+            json!({"one":{"type":"sample"}}), json!(["one"]),
+        );
+        let html = b"<style data-horizon-fixture>.fresh {}</style><div id=\"shopify-section-one\" class=\"shopify-section\">one:0</div>";
+        let css = ".fresh {}";
+        let oracle = RenderOracle {
+            html: digest(html),
+            css: digest(css.as_bytes()),
+        };
+        (renderer, oracle, html, css)
+    }
+
+    fn read_header(input: &mut io::Cursor<Vec<u8>>) -> Json {
+        let mut line = String::new();
+        input.read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    }
+
+    #[test]
+    fn stdio_worker_frames_fresh_responses_and_shuts_down_on_eof() {
+        let (mut renderer, oracle, html, css) = served_fixture();
+        let mut input = io::Cursor::new(
+            b"{\"action\":\"render\",\"request_id\":7}\n{\"action\":\"render\",\"request_id\":8}\n"
+                .to_vec(),
+        );
+        let mut output = Vec::new();
+        serve_stdio(&mut renderer, "page", 2, &oracle, &mut input, &mut output).unwrap();
+        let mut framed = io::Cursor::new(output);
+        let ready = read_header(&mut framed);
+        assert_eq!(ready["action"], "ready");
+        assert_eq!(ready["schema_version"], 1);
+        assert_eq!(ready["engine"], "liquid-rust");
+        assert_eq!(ready["fixture_sha256"], "fixture-digest");
+        assert_eq!(ready["warmup"], 2);
+        assert_eq!(ready["response_cache"], false);
+        assert_eq!(ready["correctness_verified"], true);
+        assert_eq!(ready["html"], oracle.html);
+        assert_eq!(ready["css"], oracle.css);
+        for id in [7, 8] {
+            let header = read_header(&mut framed);
+            assert_eq!(
+                header,
+                json!({"request_id":id,"html_bytes":html.len(),"css_bytes":css.len(),"error":null})
+            );
+            let mut body = vec![0; html.len() + css.len()];
+            framed.read_exact(&mut body).unwrap();
+            assert_eq!(&body[..html.len()], html);
+            assert_eq!(&body[html.len()..], css.as_bytes());
+        }
+        assert_eq!(framed.position(), framed.get_ref().len() as u64);
+        assert_eq!(renderer.context.styles.lock().unwrap().len(), 1);
+        assert_eq!(renderer.context.rendered_sources.lock().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn stdio_worker_bounds_requests_and_reports_invalid_frames_without_a_body() {
+        let invalid = [
+            b"{\"action\":\"render\",\"request_id\":-1}\n".to_vec(),
+            b"{\"action\":\"render\",\"request_id\":18446744073709551616}\n".to_vec(),
+            b"{\"action\":\"render\",\"request_id\":1.0}\n".to_vec(),
+            b"{\"action\":\"render\",\"request_id\":\"1\"}\n".to_vec(),
+            b"{\"action\":\"cached\",\"request_id\":1}\n".to_vec(),
+            b"{\"action\":\"render\",\"request_id\":1,\"extra\":true}\n".to_vec(),
+            b"{\"action\":\"render\",\"request_id\":1}".to_vec(),
+            vec![b'x'; MAX_REQUEST_LINE_BYTES + 1],
+        ];
+        for bytes in invalid {
+            let (mut renderer, oracle, _, _) = served_fixture();
+            let mut input = io::Cursor::new(bytes);
+            let mut output = Vec::new();
+            assert!(
+                serve_stdio(&mut renderer, "page", 1, &oracle, &mut input, &mut output).is_err()
+            );
+            let mut frames = io::Cursor::new(output);
+            assert_eq!(read_header(&mut frames)["action"], "ready");
+            let error = read_header(&mut frames);
+            assert!(error["request_id"].is_null());
+            assert_eq!(error["html_bytes"], 0);
+            assert_eq!(error["css_bytes"], 0);
+            assert!(error["error"]
+                .as_str()
+                .is_some_and(|message| !message.is_empty()));
+            assert_eq!(frames.position(), frames.get_ref().len() as u64);
+        }
+        assert_eq!(
+            read_worker_request(&mut io::Cursor::new(Vec::new())).unwrap(),
+            None
+        );
+        assert_eq!(
+            read_worker_request(&mut io::Cursor::new(
+                b"{\"action\":\"render\",\"request_id\":0}\n"
+            ))
+            .unwrap(),
+            Some(0)
+        );
+        assert_eq!(
+            read_worker_request(&mut io::Cursor::new(
+                b"{\"action\":\"render\",\"request_id\":18446744073709551615}\r\n"
+            ))
+            .unwrap(),
+            Some(u64::MAX)
+        );
+    }
+
+    #[test]
+    fn stdio_worker_fails_before_ready_when_warmup_oracle_is_wrong() {
+        let (mut renderer, mut oracle, _, _) = served_fixture();
+        oracle.html = digest(b"independent output differs");
+        for warmup in [0, 1] {
+            let mut output = Vec::new();
+            assert!(serve_stdio(
+                &mut renderer,
+                "page",
+                warmup,
+                &oracle,
+                &mut io::Cursor::new(Vec::new()),
+                &mut output
+            )
+            .is_err());
+            let mut frames = io::Cursor::new(output);
+            let error = read_header(&mut frames);
+            assert!(error.get("action").is_none());
+            assert_eq!(error["html_bytes"], 0);
+            assert_eq!(error["css_bytes"], 0);
+            assert!(error["error"].is_string());
+            assert_eq!(frames.position(), frames.get_ref().len() as u64);
+        }
+    }
+
+    #[test]
+    fn stdio_worker_headers_bound_unicode_and_escaped_diagnostics() {
+        let message = "🧪\0\n".repeat(1024);
+        let mut output = Vec::new();
+        write_worker_error(&mut output, Some(u64::MAX), &message).unwrap();
+        assert!(output.len() <= MAX_PROTOCOL_HEADER_BYTES);
+        assert_eq!(output.iter().filter(|byte| **byte == b'\n').count(), 1);
+        let mut frames = io::Cursor::new(output);
+        let header = read_header(&mut frames);
+        assert_eq!(header["error"].as_str().unwrap().chars().count(), 512);
+        assert_eq!(header["request_id"], u64::MAX);
+        assert_eq!(frames.position(), frames.get_ref().len() as u64);
+        let mut rejected = Vec::new();
+        assert!(write_protocol_header(
+            &mut rejected,
+            &json!({"oversized":"\0".repeat(MAX_PROTOCOL_HEADER_BYTES)})
+        )
+        .is_err());
+        assert!(rejected.is_empty());
+    }
+
+    #[test]
+    fn stdio_worker_render_errors_return_zero_lengths_and_stop() {
+        let mut renderer = prepared(&[("sections/bad", "partial HTML{% stylesheet %}partial CSS{% endstylesheet %}{{ 'value' | unsupported_fixture_filter }}{% schema %}{}{% endschema %}")], json!({"one":{"type":"bad"}}), json!(["one"]));
+        let rendered = renderer.render("template", None).unwrap();
+        assert!(rendered.error.is_some());
+        let mut output = Vec::new();
+        assert!(write_render_response(
+            &mut output,
+            9,
+            Ok(rendered),
+            &RenderOracle::pinned_homepage()
+        )
+        .is_err());
+        let mut frames = io::Cursor::new(output);
+        let header = read_header(&mut frames);
+        assert_eq!(header["request_id"], 9);
+        assert_eq!(header["html_bytes"], 0);
+        assert_eq!(header["css_bytes"], 0);
+        assert!(header["error"]
+            .as_str()
+            .unwrap()
+            .contains("unsupported_fixture_filter"));
+        assert_eq!(frames.position(), frames.get_ref().len() as u64);
+    }
+
     #[test]
     fn borrowed_global_view_shares_store_values_and_keeps_explicit_nil_overrides() {
         let base = liquid_core::object!({"shop":{"name":"Original"},"optional":{"present":true}});
