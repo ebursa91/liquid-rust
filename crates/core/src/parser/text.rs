@@ -18,6 +18,18 @@ impl Text {
 }
 
 impl Renderable for Text {
+    fn is_blank(&self) -> bool {
+        self.text
+            .bytes()
+            .all(|byte| matches!(byte, b' ' | b'\t' | b'\r' | b'\n' | 0x0b | 0x0c))
+    }
+
+    fn trim_blank(&mut self) {
+        if self.is_blank() {
+            self.text.clear();
+        }
+    }
+
     fn render_to(&self, writer: &mut dyn Write, _runtime: &dyn Runtime) -> Result<()> {
         write!(writer, "{}", self.text).replace("Failed to render")?;
         Ok(())

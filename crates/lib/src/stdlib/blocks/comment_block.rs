@@ -67,6 +67,10 @@ impl ParseBlock for CommentBlock {
 struct Comment;
 
 impl Renderable for Comment {
+    fn is_blank(&self) -> bool {
+        true
+    }
+
     fn render_to(&self, _writer: &mut dyn Write, _runtime: &dyn Runtime) -> Result<()> {
         Ok(())
     }

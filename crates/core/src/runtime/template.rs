@@ -9,16 +9,30 @@ use super::Runtime;
 #[derive(Debug)]
 pub struct Template {
     elements: Vec<Box<dyn Renderable>>,
+    blank: bool,
 }
 
 impl Template {
     /// Create an executable template block.
     pub fn new(elements: Vec<Box<dyn Renderable>>) -> Template {
-        Template { elements }
+        let blank = elements.iter().all(|element| element.is_blank());
+        Template { elements, blank }
     }
 }
 
 impl Renderable for Template {
+    fn is_blank(&self) -> bool {
+        self.blank
+    }
+
+    fn trim_blank(&mut self) {
+        if self.blank {
+            for element in &mut self.elements {
+                element.trim_blank();
+            }
+        }
+    }
+
     fn render_to(&self, writer: &mut dyn Write, runtime: &dyn Runtime) -> Result<()> {
         for el in &self.elements {
             el.render_to(writer, runtime)?;

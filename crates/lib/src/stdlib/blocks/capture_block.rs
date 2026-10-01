@@ -77,6 +77,10 @@ impl Capture {
 }
 
 impl Renderable for Capture {
+    fn is_blank(&self) -> bool {
+        true
+    }
+
     fn render_to(&self, _writer: &mut dyn Write, runtime: &dyn Runtime) -> Result<()> {
         let mut captured = Vec::new();
         self.template

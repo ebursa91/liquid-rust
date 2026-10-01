@@ -74,6 +74,10 @@ impl Assign {
 }
 
 impl Renderable for Assign {
+    fn is_blank(&self) -> bool {
+        true
+    }
+
     fn render_to(&self, _writer: &mut dyn Write, runtime: &dyn Runtime) -> Result<()> {
         let value = self
             .src

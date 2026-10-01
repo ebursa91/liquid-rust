@@ -20,7 +20,7 @@ impl ParseTag for EchoTag {
         options: &Language,
     ) -> Result<Box<dyn Renderable>> {
         let Some(token) = arguments.next() else {
-            return Ok(Box::new(liquid_core::runtime::Template::new(vec![])));
+            return Ok(Box::new(EmptyEcho));
         };
         let expression = token.expect_filter_chain(options).into_result()?;
         arguments.expect_nothing()?;
@@ -28,5 +28,18 @@ impl ParseTag for EchoTag {
     }
     fn reflection(&self) -> &dyn TagReflection {
         self
+    }
+}
+
+#[derive(Debug)]
+struct EmptyEcho;
+
+impl Renderable for EmptyEcho {
+    fn render_to(
+        &self,
+        _writer: &mut dyn std::io::Write,
+        _runtime: &dyn liquid_core::Runtime,
+    ) -> Result<()> {
+        Ok(())
     }
 }

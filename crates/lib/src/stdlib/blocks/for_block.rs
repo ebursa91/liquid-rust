@@ -106,7 +106,7 @@ impl ParseBlock for ForBlock {
         let else_template = else_template.map(Template::new);
 
         tokens.assert_empty();
-        Ok(Box::new(For {
+        let mut parsed = For {
             var_name: liquid_core::model::KString::from_ref(var_name),
             range,
             item_template,
@@ -114,7 +114,9 @@ impl ParseBlock for ForBlock {
             limit,
             offset,
             reversed,
-        }))
+        };
+        parsed.trim_blank();
+        Ok(Box::new(parsed))
     }
 
     fn reflection(&self) -> &dyn BlockReflection {
@@ -171,6 +173,23 @@ fn trace_for_tag(
 }
 
 impl Renderable for For {
+    fn is_blank(&self) -> bool {
+        self.item_template.is_blank()
+            && self
+                .else_template
+                .as_ref()
+                .is_none_or(|body| body.is_blank())
+    }
+
+    fn trim_blank(&mut self) {
+        if self.is_blank() {
+            self.item_template.trim_blank();
+            if let Some(body) = &mut self.else_template {
+                body.trim_blank();
+            }
+        }
+    }
+
     fn render_to(&self, writer: &mut dyn Write, runtime: &dyn Runtime) -> Result<()> {
         let range = self
             .range

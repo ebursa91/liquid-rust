@@ -43,7 +43,7 @@ impl ParseBlock for IfBlock {
         mut tokens: TagBlock<'_, '_>,
         options: &Language,
     ) -> Result<Box<dyn Renderable>> {
-        let conditional = parse_if(arguments, &mut tokens, options)?;
+        let conditional = parse_if(arguments, &mut tokens, options, true)?;
 
         tokens.assert_empty();
         Ok(conditional)
@@ -58,6 +58,7 @@ fn parse_if(
     arguments: TagTokenIter<'_>,
     tokens: &mut TagBlock<'_, '_>,
     options: &Language,
+    trim_blank: bool,
 ) -> Result<Box<dyn Renderable>> {
     let condition = parse_condition(arguments)?;
 
@@ -72,7 +73,7 @@ fn parse_if(
                     break;
                 }
                 "elsif" => {
-                    if_false = Some(vec![parse_if(tag.into_tokens(), tokens, options)?]);
+                    if_false = Some(vec![parse_if(tag.into_tokens(), tokens, options, false)?]);
                     break;
                 }
                 _ => if_true.push(tag.parse(tokens, options)?),
@@ -84,12 +85,18 @@ fn parse_if(
     let if_true = Template::new(if_true);
     let if_false = if_false.map(Template::new);
 
-    Ok(Box::new(Conditional {
+    let mut conditional = Conditional {
         condition,
         mode: true,
         if_true,
         if_false,
-    }))
+    };
+    // An elsif belongs to the original conditional: one nonblank branch keeps
+    // whitespace in every branch, including the recursively parsed elsif chain.
+    if trim_blank {
+        conditional.trim_blank();
+    }
+    Ok(Box::new(conditional))
 }
 
 #[derive(Copy, Clone, Debug, Default)]
@@ -144,12 +151,14 @@ impl ParseBlock for UnlessBlock {
         let if_false = if_false.map(Template::new);
 
         tokens.assert_empty();
-        Ok(Box::new(Conditional {
+        let mut conditional = Conditional {
             condition,
             mode: false,
             if_true,
             if_false,
-        }))
+        };
+        conditional.trim_blank();
+        Ok(Box::new(conditional))
     }
 
     fn reflection(&self) -> &dyn BlockReflection {
@@ -178,6 +187,19 @@ impl Conditional {
 }
 
 impl Renderable for Conditional {
+    fn is_blank(&self) -> bool {
+        self.if_true.is_blank() && self.if_false.as_ref().is_none_or(|body| body.is_blank())
+    }
+
+    fn trim_blank(&mut self) {
+        if self.is_blank() {
+            self.if_true.trim_blank();
+            if let Some(body) = &mut self.if_false {
+                body.trim_blank();
+            }
+        }
+    }
+
     fn render_to(&self, writer: &mut dyn Write, runtime: &dyn Runtime) -> Result<()> {
         let condition = self.compare(runtime).trace_with(|| self.trace().into())?;
         if condition {

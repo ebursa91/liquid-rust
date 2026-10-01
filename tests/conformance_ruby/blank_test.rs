@@ -57,13 +57,11 @@ fn test_new_tags_are_not_blank_by_default() {
 }
 
 #[test]
-#[should_panic] // liquid-rust#244
 fn test_loops_are_blank() {
     assert_template_result!("", wrap_in_for(" "));
 }
 
 #[test]
-#[should_panic] // liquid-rust#244
 fn test_if_else_are_blank() {
     assert_template_result!("", "{% if true %} {% elsif false %} {% else %} {% endif %}",);
 }
@@ -82,19 +80,16 @@ fn test_mark_as_blank_only_during_parsing() {
 }
 
 #[test]
-#[should_panic] // liquid-rust#244
 fn test_comments_are_blank() {
     assert_template_result!("", wrap(" {% comment %} whatever {% endcomment %} "),);
 }
 
 #[test]
-#[should_panic] // liquid-rust#244
 fn test_captures_are_blank() {
     assert_template_result!("", wrap(" {% capture foo %} whatever {% endcapture %} "),);
 }
 
 #[test]
-#[should_panic] // liquid-rust#244
 fn test_nested_blocks_are_blank_but_only_if_all_children_are() {
     assert_template_result!("", &wrap(wrap(" ")));
     assert_template_result!(
@@ -107,13 +102,11 @@ fn test_nested_blocks_are_blank_but_only_if_all_children_are() {
 }
 
 #[test]
-#[should_panic] // liquid-rust#244
 fn test_assigns_are_blank() {
     assert_template_result!("", &wrap(r#" {% assign foo = "bar" %} "#));
 }
 
 #[test]
-#[should_panic] // liquid-rust#244
 fn test_whitespace_is_blank() {
     assert_template_result!("", wrap(" "));
     assert_template_result!("", wrap("\t"));
@@ -172,9 +165,78 @@ fn test_include_is_blank() {
 }
 
 #[test]
-#[should_panic] // liquid-rust#244
 fn test_case_is_blank() {
     assert_template_result!("", wrap(" {% assign foo = 'bar' %} {% case foo %} {% when 'bar' %} {% when 'whatever' %} {% else %} {% endcase %} "));
     assert_template_result!("", wrap(" {% assign foo = 'else' %} {% case foo %} {% when 'bar' %} {% when 'whatever' %} {% else %} {% endcase %} "));
     assert_template_result!(repeat("   x  ", N+1), wrap(" {% assign foo = 'else' %} {% case foo %} {% when 'bar' %} {% when 'whatever' %} {% else %} x {% endcase %} "));
+}
+
+#[test]
+fn blank_control_flow_matches_pinned_ruby_side_effects_and_all_branches() {
+    // Original cases checked against Shopify Liquid 5.14.0 (4e39ae4).
+    let cases = [
+        (
+            "A{% if true %}\n {% assign x=1 %}\n{% endif %}B{{x}}",
+            "AB1",
+        ),
+        (
+            "A{% if false %}text{% elsif true %} \n{% else %}\t{% endif %}B",
+            "A \nB",
+        ),
+        (
+            "A{% if true %} \n{% elsif false %}text{% endif %}B",
+            "A \nB",
+        ),
+        (
+            "A{% if false %}\n{% elsif true %}\t{% else %} {% endif %}B",
+            "AB",
+        ),
+        (
+            "A{% unless false %}\n {% assign x=2 %} {% else %}\t{% endunless %}B{{x}}",
+            "AB2",
+        ),
+        ("A{% case 1 %}ignored{% when 1 %} \n{% endcase %}B", "A \nB"),
+        ("A{% case 1 %}ignored{% else %} \n{% endcase %}B", "A \nB"),
+        (
+            "A{% if true %} {% case 1 %}ignored{% endcase %} {% endif %}B",
+            "A  B",
+        ),
+        (
+            "A{% if true %} {% case 1 %} {% endcase %} {% endif %}B",
+            "AB",
+        ),
+        (
+            "A{% if true %} {% case 1 %}{% endcase %} {% endif %}B",
+            "AB",
+        ),
+        ("A{% if true %}\u{000b}{% endif %}B", "AB"),
+        ("A{% if true %}\u{000c}{% endif %}B", "AB"),
+        ("A{% if true %}\u{00a0}{% endif %}B", "A\u{00a0}B"),
+        (
+            "A{% if true %} {% ifchanged %} {% endifchanged %} {% endif %}B",
+            "A B",
+        ),
+        ("A{% if true %} {% echo %} {% endif %}B", "A  B"),
+        (
+            "A{% if true %} {% capture x %} \n{% endcapture %} {% endif %}B{{x}}",
+            "AB \n",
+        ),
+        (
+            "A{% for x in (1..2) %} {% assign y=x %} {% endfor %}B{{y}}",
+            "AB2",
+        ),
+        (
+            "A{% for x in (1..2) %} \n{% else %}text{% endfor %}B",
+            "A \n \nB",
+        ),
+        ("A{% if true %} {{nil}} {% endif %}B", "A  B"),
+        (
+            "A{% if true %} {% raw %} {% endraw %} {% endif %}B",
+            "A   B",
+        ),
+        ("A{% if true %} {% # inline comment %} {% endif %}B", "AB"),
+    ];
+    for (source, expected) in cases {
+        assert_template_result!(expected, source);
+    }
 }
