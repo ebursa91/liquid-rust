@@ -17,6 +17,24 @@ pub trait Runtime {
         true
     }
 
+    /// Project an evaluated expression into a host-provided value view.
+    ///
+    /// The default preserves the original borrowed or owned value. Hosts can
+    /// supply custom views without changing stored values or variable lookup.
+    /// Standard stack frames delegate this hook to their parent runtime.
+    /// `scope` is the original active caller, including its local/sandboxed
+    /// bindings; `path` is the evaluated variable path, or `None` for literals
+    /// and optional expressions whose selectors could not be evaluated.
+    fn project_value<'a>(
+        &'a self,
+        value: ValueCow<'a>,
+        scope: &'a dyn Runtime,
+        path: Option<&[ScalarCow<'_>]>,
+    ) -> ValueCow<'a> {
+        let _ = (scope, path);
+        value
+    }
+
     /// Partial templates for inclusion.
     fn partials(&self) -> &dyn PartialStore;
 
@@ -49,6 +67,15 @@ pub trait Runtime {
 impl<R: Runtime + ?Sized> Runtime for &R {
     fn strict_variables(&self) -> bool {
         <R as Runtime>::strict_variables(self)
+    }
+
+    fn project_value<'a>(
+        &'a self,
+        value: ValueCow<'a>,
+        scope: &'a dyn Runtime,
+        path: Option<&[ScalarCow<'_>]>,
+    ) -> ValueCow<'a> {
+        <R as Runtime>::project_value(self, value, scope, path)
     }
 
     fn partials(&self) -> &dyn super::PartialStore {
