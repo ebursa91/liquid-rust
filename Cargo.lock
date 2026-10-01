@@ -658,6 +658,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_yaml",
+ "sha2",
  "snapbox",
  "tera",
 ]

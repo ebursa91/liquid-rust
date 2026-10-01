@@ -93,3 +93,36 @@ between Rust and Ruby; this fixture does not exercise those values.
 This fixture exercises one homepage configuration and locale. Passing it does
 not establish universal Liquid compatibility, complete Shopify Drop semantics,
 other Horizon templates, responsive interactions or hosted Shopify behavior.
+
+## Prepared rendering and performance
+
+The original Ruby fixture host above remains a correctness baseline. Its
+standalone modern Ruby implementation is maintained in
+[ebursa91/horizon-ruby-renderer](https://github.com/ebursa91/horizon-ruby-renderer),
+with the same synthetic fixture bytes and external reference pins.
+
+The Rust example prepares immutable source, schema, asset and parsed partial
+caches once, then creates fresh Liquid runtimes and clears stylesheet, platform
+call and executed-source state for every request. It uses `LazyCompiler` to
+retain parsed ASTs. Rendered responses are never cached. The prepared renderer
+accepts sequential requests; it does not establish concurrent shared-host safety.
+
+Build outside timing and run the release worker directly:
+
+```sh
+cargo build --release --locked --example horizon
+./target/release/examples/horizon \
+  --theme-root "$HORIZON_THEME_ROOT" --fixture compat/horizon/store.json \
+  --scope page --output-dir /tmp/horizon-rust-worker \
+  --benchmark-json /tmp/horizon-rust-worker/benchmark.json \
+  --iterations 30 --warmup 50 --benchmark-mode direct
+```
+
+Each warmup and measured request renders independently. The worker checks HTML
+and collected CSS SHA-256 digests outside the render timer, fails on changing
+outputs and records each measured request. Initialization excludes lazy AST
+compilation, which is exercised by warmup. Warm times include fresh request
+runtimes, diagnostics and both output buffers; hashing and artifact/report writes
+are excluded. Process startup and cold initialization require separate external
+measurements. Debug workers identify themselves and must not be used for release
+performance claims. SHA-256 uses the already locked, dev-only `sha2` dependency.

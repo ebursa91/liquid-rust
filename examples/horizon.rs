@@ -8,6 +8,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Instant;
 
 use liquid::reflection::ParserReflection;
 use liquid_core::model::{
@@ -16,13 +17,14 @@ use liquid_core::model::{
 use liquid_core::parser::{
     BlockReflection, FilterArguments, FilterReflection, ParameterReflection,
 };
-use liquid_core::partials::{OnDemandCompiler, PartialCompiler, PartialSource};
+use liquid_core::partials::{LazyCompiler, OnDemandCompiler, PartialCompiler, PartialSource};
 use liquid_core::runtime::{PartialStore, Registers, RuntimeBuilder, StackFrame, Template};
 use liquid_core::{Error, Expression, Filter, Language, Object, ParseBlock, ParseFilter, ParseTag};
 use liquid_core::{
     Renderable, Result, Runtime, TagBlock, TagReflection, TagTokenIter, Value, ValueCow, ValueView,
 };
 use serde_json::{json, Value as Json};
+use sha2::{Digest, Sha256};
 
 fn failure(error: impl fmt::Display) -> Error {
     Error::with_msg(error.to_string())
@@ -86,9 +88,16 @@ fn json_comments(text: &str) -> Result<String> {
 }
 
 #[derive(Clone, Debug, Default)]
-struct Sources(BTreeMap<String, String>);
+struct Sources(
+    Arc<BTreeMap<String, String>>,
+    Arc<Mutex<BTreeMap<String, Json>>>,
+);
 
 impl Sources {
+    fn new(files: BTreeMap<String, String>) -> Self {
+        Self(Arc::new(files), Arc::new(Mutex::new(BTreeMap::new())))
+    }
+
     fn read(theme: &Path) -> Result<Self> {
         let mut files = BTreeMap::new();
         for directory in ["snippets", "blocks", "sections", "layout"] {
@@ -109,10 +118,13 @@ impl Sources {
                 files.insert(key, fs::read_to_string(path).map_err(failure)?);
             }
         }
-        Ok(Self(files))
+        Ok(Self::new(files))
     }
 
     fn schema(&self, name: &str) -> Result<Json> {
+        if let Some(schema) = self.1.lock().map_err(failure)?.get(name) {
+            return Ok(schema.clone());
+        }
         let source = self
             .0
             .get(name)
@@ -127,7 +139,12 @@ impl Sources {
             .get(1)
             .ok_or_else(|| failure("Missing schema body"))?
             .as_str();
-        serde_json::from_str(&json_comments(body)?).map_err(failure)
+        let schema: Json = serde_json::from_str(&json_comments(body)?).map_err(failure)?;
+        self.1
+            .lock()
+            .map_err(failure)?
+            .insert(name.to_owned(), schema.clone());
+        Ok(schema)
     }
 }
 
@@ -156,9 +173,52 @@ struct Context {
     calls: Mutex<BTreeMap<String, usize>>,
     rendered_sources: Mutex<Vec<String>>,
     palette: Vec<FixtureColor>,
+    json_cache: Mutex<BTreeMap<String, Json>>,
+    asset_cache: Mutex<BTreeMap<String, String>>,
 }
 
 impl Context {
+    // Keep only immutable source/configuration caches between requests.
+    fn reset_request(&self) -> Result<()> {
+        self.styles.lock().map_err(failure)?.clear();
+        self.calls.lock().map_err(failure)?.clear();
+        self.rendered_sources.lock().map_err(failure)?.clear();
+        Ok(())
+    }
+
+    fn json_source(&self, name: &str) -> Result<Json> {
+        if let Some(value) = self.json_cache.lock().map_err(failure)?.get(name) {
+            return Ok(value.clone());
+        }
+        let value = read_json(&self.theme.join(name))?;
+        self.json_cache
+            .lock()
+            .map_err(failure)?
+            .insert(name.to_owned(), value.clone());
+        Ok(value)
+    }
+
+    fn asset_content(&self, name: &str) -> Result<String> {
+        if let Some(body) = self.asset_cache.lock().map_err(failure)?.get(name) {
+            return Ok(body.clone());
+        }
+        let root = self.theme.canonicalize().map_err(failure)?;
+        let path = root
+            .join("assets")
+            .join(name)
+            .canonicalize()
+            .map_err(failure)?;
+        if !path.starts_with(&root) {
+            return Err(failure("Asset path escapes theme root"));
+        }
+        let body = fs::read_to_string(path).map_err(failure)?;
+        self.asset_cache
+            .lock()
+            .map_err(failure)?
+            .insert(name.to_owned(), body.clone());
+        Ok(body)
+    }
+
     fn note(&self, name: &str) -> Result<()> {
         *self
             .calls
@@ -310,7 +370,7 @@ impl Context {
         {
             return Err(failure("Invalid section group name"));
         }
-        let group = read_json(&self.theme.join(format!("sections/{name}.json")))?;
+        let group = self.json_source(&format!("sections/{name}.json"))?;
         for (index, id) in group["order"]
             .as_array()
             .ok_or_else(|| failure("Group requires section order"))?
@@ -1570,16 +1630,7 @@ impl Filter for FilterNode {
                 {
                     return Err(failure("Invalid fixture asset name"));
                 }
-                let root = self.context.theme.canonicalize().map_err(failure)?;
-                let path = root
-                    .join("assets")
-                    .join(name.as_str())
-                    .canonicalize()
-                    .map_err(failure)?;
-                if !path.starts_with(&root) {
-                    return Err(failure("Asset path escapes theme root"));
-                }
-                let body = fs::read_to_string(path).map_err(failure)?;
+                let body = self.context.asset_content(name.as_str())?;
                 Ok(Value::scalar(if self.name == "asset_url" {
                     format!("/assets/{name}")
                 } else {
@@ -1914,6 +1965,379 @@ fn language(context: Arc<Context>) -> Result<Arc<Language>> {
         .ok_or_else(|| failure("Missing compiled language"))
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct RenderOutput {
+    html: Vec<u8>,
+    css: String,
+    sections: Vec<String>,
+    error: Option<String>,
+}
+
+impl RenderOutput {
+    fn ensure_success(&self) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        match &self.error {
+            Some(error) => Err(error.clone().into()),
+            None => Ok(()),
+        }
+    }
+}
+
+struct Renderer {
+    context: Arc<Context>,
+    language: Arc<Language>,
+    partials: Box<dyn PartialStore + Send + Sync>,
+    page: String,
+    template: Json,
+    fixture_sha256: String,
+}
+
+impl Renderer {
+    fn new(
+        theme: PathBuf,
+        store: &Path,
+        page: &str,
+        diagnostic_only: bool,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>> {
+        let fixture_bytes = fs::read(store)?;
+        let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
+        let fixture: Json =
+            serde_json::from_str(&json_comments(std::str::from_utf8(&fixture_bytes)?)?)?;
+        let sources = Sources::read(&theme)?;
+        if fixture["synthetic"] != true || fixture["schema_version"] != 1 {
+            return Err("Expected synthetic fixture schema version 1".into());
+        }
+        let definitions = read_json(&theme.join("config/settings_schema.json"))?
+            .as_array()
+            .ok_or("Settings schema must be an array")?
+            .iter()
+            .flat_map(|group| group["settings"].as_array().cloned().unwrap_or_default())
+            .collect::<Vec<_>>();
+        let schema = json!({"settings":definitions});
+        let mut globals = liquid_core::model::to_object(&fixture["globals"])?;
+        let page_data = &fixture["pages"][page];
+        for (target, source) in [("page_title", "title"), ("page_description", "description")] {
+            globals.insert(
+                target.into(),
+                liquid_core::model::to_value(&page_data[source])?,
+            );
+        }
+        globals.insert("current_page".into(), Value::scalar(1));
+        globals.entry("current_tags").or_insert(Value::Nil);
+        globals.insert(
+            "template".into(),
+            liquid_core::model::to_value(&json!({"name":page,"suffix":null}))?,
+        );
+        if let Some(Value::Object(cart)) = globals.get_mut("cart") {
+            if let Some(Value::Array(items)) = cart.get_mut("items") {
+                for (index, item) in items.iter_mut().enumerate() {
+                    if let Value::Object(item) = item {
+                        item.insert("index".into(), Value::scalar(index as i64));
+                    }
+                }
+            }
+        }
+        let mut context = Context {
+            theme: theme.clone(),
+            locales: read_json(&theme.join("locales/en.default.json"))?,
+            sources,
+            fixture,
+            globals,
+            styles: Mutex::new(Vec::new()),
+            calls: Mutex::new(BTreeMap::new()),
+            rendered_sources: Mutex::new(Vec::new()),
+            palette: Vec::new(),
+            json_cache: Mutex::new(BTreeMap::new()),
+            asset_cache: Mutex::new(BTreeMap::new()),
+        };
+        let mut settings = context.setting_defaults(&schema);
+        let data = read_json(&theme.join("config/settings_data.json"))?;
+        merge(&mut settings, &data["current"]);
+        merge(&mut settings, &context.fixture["theme"]["settings"]);
+        let mut settings = liquid_core::model::to_object(&settings)?;
+        context.materialize_settings(&mut settings, &schema, &context.globals)?;
+        if let Some(colors) = settings.get("color_palette").and_then(ValueView::as_object) {
+            context.palette = colors
+                .iter()
+                .map(|(name, value)| {
+                    FixtureColor::new(value.to_kstr().as_str())
+                        .map(|color| (name.into_owned(), color))
+                })
+                .collect::<Result<BTreeMap<_, _>>>()?
+                .into_values()
+                .collect();
+        }
+        context
+            .globals
+            .insert("settings".into(), Value::Object(settings));
+        let context = Arc::new(context);
+        let template = if diagnostic_only {
+            Json::Null
+        } else {
+            let page_template = context.fixture["pages"][page]["template"]
+                .as_str()
+                .ok_or("Missing page template")?;
+            context.json_source(page_template)?
+        };
+        Ok(Self::from_context(
+            context,
+            page.to_owned(),
+            template,
+            fixture_sha256,
+        )?)
+    }
+
+    fn from_context(
+        context: Arc<Context>,
+        page: String,
+        template: Json,
+        fixture_sha256: String,
+    ) -> Result<Self> {
+        let language = language(context.clone())?;
+        // The existing lazy compiler retains ASTs, never rendered response bytes.
+        let partials = LazyCompiler::new(context.sources.clone()).compile(language.clone())?;
+        Ok(Self {
+            context,
+            language,
+            partials,
+            page,
+            template,
+            fixture_sha256,
+        })
+    }
+
+    fn parse_source(&self, name: &str) -> Result<()> {
+        let source = self
+            .context
+            .sources
+            .try_get(name)
+            .ok_or_else(|| failure("Missing diagnostic source"))?;
+        liquid_core::parser::parse(&source, &self.language)?;
+        Ok(())
+    }
+
+    fn render(&mut self, scope: &str, only: Option<&str>) -> Result<RenderOutput> {
+        let context = &self.context;
+        let partials = &self.partials;
+        context.reset_request()?;
+        if !["hero", "template", "page"].contains(&scope) {
+            return Err(failure("Unsupported scope"));
+        }
+        let mut html = Vec::new();
+        let mut rendered = Vec::new();
+        let mut error = None;
+        for (position, id) in self.template["order"]
+            .as_array()
+            .ok_or_else(|| failure("Missing section order"))?
+            .iter()
+            .enumerate()
+        {
+            let id = id.as_str().ok_or_else(|| failure("Invalid section ID"))?;
+            let section = &self.template["sections"][id];
+            let kind = section["type"]
+                .as_str()
+                .ok_or_else(|| failure("Missing section type"))?;
+            if scope == "hero" && position != 0 {
+                continue;
+            }
+            if only.is_some_and(|only| only != kind && only != id) {
+                continue;
+            }
+            let render = (|| -> Result<Vec<u8>> {
+                let mut rendered = Vec::new();
+                context.render_section(
+                    &mut rendered,
+                    partials.as_ref(),
+                    id,
+                    section,
+                    position + 1,
+                )?;
+                Ok(rendered)
+            })();
+            match render {
+                Ok(bytes) => {
+                    html.extend(bytes);
+                    rendered.push(id.to_owned());
+                }
+                Err(failure) => {
+                    error = Some(failure.to_string());
+                    break;
+                }
+            }
+        }
+        if error.is_none() && scope == "page" {
+            let render = (|| -> Result<Vec<u8>> {
+                let mut globals = context.globals.clone();
+                let body = String::from_utf8(html.clone()).map_err(failure)?;
+                globals.insert("content_for_layout".into(), Value::scalar(body));
+                globals.insert(
+                    "content_for_header".into(),
+                    Value::scalar("<!-- horizon-fixture-stylesheets -->"),
+                );
+                let runtime = RuntimeBuilder::new()
+                    .set_globals(&globals)
+                    .set_partials(partials.as_ref())
+                    .build();
+                set_platform_bindings(&runtime, &globals);
+                let runtime = FixtureRuntime {
+                    inner: &runtime,
+                    name: "layout/theme",
+                    palette: &context.palette,
+                };
+                let mut output = Vec::new();
+                context.record_source("layout/theme")?;
+                partials
+                    .get("layout/theme")?
+                    .render_to(&mut output, &runtime)?;
+                let body = String::from_utf8(output).map_err(failure)?;
+                let marker = "<!-- horizon-fixture-stylesheets -->";
+                if body.matches(marker).count() != 1 {
+                    return Err(failure("Page layout must expose content_for_header once"));
+                }
+                let css = context
+                    .styles
+                    .lock()
+                    .map_err(failure)?
+                    .iter()
+                    .map(|(_, body)| body.as_str())
+                    .collect::<String>();
+                Ok(body
+                    .replacen(
+                        marker,
+                        &format!("<style data-horizon-fixture>{css}</style>"),
+                        1,
+                    )
+                    .into_bytes())
+            })();
+            match render {
+                Ok(bytes) => html = bytes,
+                Err(failure) => error = Some(failure.to_string()),
+            }
+        }
+        let css = context
+            .styles
+            .lock()
+            .map_err(failure)?
+            .iter()
+            .map(|(_, body)| body.as_str())
+            .collect::<String>();
+        Ok(RenderOutput {
+            html,
+            css,
+            sections: rendered,
+            error,
+        })
+    }
+
+    fn report(&self, output: &RenderOutput) -> Result<Json> {
+        let context = &self.context;
+        let report = json!({"engine":"liquid-rust","fixture_sha256":self.fixture_sha256,"theme_sha":context.fixture["theme"]["sha"],"theme":context.fixture["theme"],"store_schema_version":context.fixture["schema_version"],"configuration":{"parsing":"strict","strict_variables":false,"strict_filters":true},"sections_rendered":output.sections,"platform_calls":*context.calls.lock().map_err(failure)?,"sources":*context.rendered_sources.lock().map_err(failure)?,"platform_contract":{"pagination":"first page only","font":"configured Inter uses local system Arial","events":"synthetic product/cart view JSON","form_submission":"unsupported","cart_item_index":"derived zero-based index","payment_terms":"empty only when fixture explicitly disables service","optional_variables":"missing optional properties resolve to nil","clock":context.fixture["manifest"]["created_at"]},"error":output.error});
+        Ok(report)
+    }
+
+    fn write_output(
+        &self,
+        directory: &Path,
+        output: &RenderOutput,
+    ) -> std::result::Result<(), Box<dyn std::error::Error>> {
+        fs::create_dir_all(directory)?;
+        fs::write(directory.join(format!("{}.html", self.page)), &output.html)?;
+        fs::write(directory.join("styles.css"), &output.css)?;
+        fs::write(
+            directory.join("report.json"),
+            serde_json::to_string_pretty(&self.report(output)?)?,
+        )?;
+        Ok(())
+    }
+}
+
+fn digest(bytes: &[u8]) -> Json {
+    json!({"bytes":bytes.len(), "sha256":format!("{:x}", Sha256::digest(bytes))})
+}
+
+fn benchmark(
+    renderer: &mut Renderer,
+    options: &BTreeMap<String, String>,
+    initialization_ms: f64,
+) -> std::result::Result<Json, Box<dyn std::error::Error>> {
+    let iterations = options
+        .get("--iterations")
+        .map(String::as_str)
+        .unwrap_or("10")
+        .parse::<usize>()?;
+    let warmup = options
+        .get("--warmup")
+        .map(String::as_str)
+        .unwrap_or("3")
+        .parse::<usize>()?;
+    if iterations == 0 {
+        return Err("--iterations must be positive".into());
+    }
+    if warmup == 0 {
+        return Err("--warmup must be positive to prime lazy AST caches".into());
+    }
+    if options
+        .get("--benchmark-mode")
+        .is_some_and(|mode| mode != "direct")
+    {
+        return Err("Rust benchmark supports --benchmark-mode direct only".into());
+    }
+    let scope = options.get("--scope").map(String::as_str).unwrap_or("hero");
+    let only = options.get("--only").map(String::as_str);
+    let output_dir = options.get("--output-dir").map(PathBuf::from);
+    let mut expected = None;
+    let mut samples = Vec::with_capacity(iterations);
+    let mut samples_ms = Vec::with_capacity(iterations);
+    let mut final_output = None;
+    for index in 0..warmup
+        .checked_add(iterations)
+        .ok_or("Iteration count overflow")?
+    {
+        let start = Instant::now();
+        let output = renderer.render(scope, only)?;
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        output.ensure_success()?;
+        // Digests and correctness checks are deliberately outside the render timer.
+        let fingerprints = (digest(&output.html), digest(output.css.as_bytes()));
+        if expected
+            .as_ref()
+            .is_some_and(|value| value != &fingerprints)
+        {
+            return Err("Benchmark output changed between requests".into());
+        }
+        expected.get_or_insert_with(|| fingerprints.clone());
+        if index >= warmup {
+            samples_ms.push(elapsed_ms);
+            samples.push(
+                json!({"elapsed_ms":elapsed_ms, "html":fingerprints.0, "css":fingerprints.1}),
+            );
+        }
+        final_output = Some(output);
+    }
+    let output = final_output.ok_or("Missing benchmark output")?;
+    let (html, css) = expected.ok_or("Missing benchmark fingerprint")?;
+    let diagnostics = renderer.report(&output)?;
+    if let Some(directory) = output_dir {
+        renderer.write_output(&directory, &output)?;
+    }
+    Ok(json!({
+        "schema_version":1, "engine":"liquid-rust", "benchmark_mode":"direct",
+        "initialization_ms":initialization_ms, "warmup":warmup, "iterations":iterations,
+        "samples_ms":samples_ms, "samples":samples, "html":html, "css":css,
+        "fixture_sha256":renderer.fixture_sha256,
+        "theme_sha":renderer.context.fixture["theme"]["sha"],
+        "scope":scope, "page":renderer.page,
+        "correctness_verified":true, "response_cache":false,
+        "build_profile":if cfg!(debug_assertions) {"debug"} else {"release"},
+        "release":!cfg!(debug_assertions),
+        "runtime":{"package_version":env!("CARGO_PKG_VERSION"),"os":std::env::consts::OS,"architecture":std::env::consts::ARCH},
+        "timer":"std::time::Instant monotonic wall clock",
+        "peak_rss_bytes":null, "samples_cpu_ms":null,
+        "initialization_contract":"fixture/source/configuration loading and parser setup; lazy AST compilation is exercised by warmup",
+        "request_contract":"fresh Liquid runtimes; styles, platform calls and source diagnostics reset; immutable source/schema/AST caches retained",
+        "diagnostics":diagnostics
+    }))
+}
+
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut options = BTreeMap::new();
     let mut arguments = std::env::args().skip(1);
@@ -1932,202 +2356,51 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .or_else(|| options.get("--store"))
             .ok_or("--fixture is required")?,
     );
-    let output = PathBuf::from(
-        options
-            .get("--output-dir")
-            .ok_or("--output-dir is required")?,
-    );
     let page = options.get("--page").map(String::as_str).unwrap_or("index");
     let scope = options.get("--scope").map(String::as_str).unwrap_or("hero");
     if !["hero", "template", "page"].contains(&scope) {
         return Err("Unsupported scope".into());
     }
-    let fixture = read_json(&store)?;
-    let sources = Sources::read(&theme)?;
-    if fixture["synthetic"] != true || fixture["schema_version"] != 1 {
-        return Err("Expected synthetic fixture schema version 1".into());
+    if !options.contains_key("--output-dir") && !options.contains_key("--benchmark-json") {
+        return Err("--output-dir is required".into());
     }
-    let definitions = read_json(&theme.join("config/settings_schema.json"))?
-        .as_array()
-        .ok_or("Settings schema must be an array")?
-        .iter()
-        .flat_map(|group| group["settings"].as_array().cloned().unwrap_or_default())
-        .collect::<Vec<_>>();
-    let schema = json!({"settings":definitions});
-    let mut globals = liquid_core::model::to_object(&fixture["globals"])?;
-    let page_data = &fixture["pages"][page];
-    for (target, source) in [("page_title", "title"), ("page_description", "description")] {
-        globals.insert(
-            target.into(),
-            liquid_core::model::to_value(&page_data[source])?,
-        );
-    }
-    globals.insert("current_page".into(), Value::scalar(1));
-    globals.entry("current_tags").or_insert(Value::Nil);
-    globals.insert(
-        "template".into(),
-        liquid_core::model::to_value(&json!({"name":page,"suffix":null}))?,
-    );
-    if let Some(Value::Object(cart)) = globals.get_mut("cart") {
-        if let Some(Value::Array(items)) = cart.get_mut("items") {
-            for (index, item) in items.iter_mut().enumerate() {
-                if let Value::Object(item) = item {
-                    item.insert("index".into(), Value::scalar(index as i64));
-                }
-            }
+    if let Some(path) = options.get("--benchmark-json") {
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
         }
     }
-    let mut context = Context {
-        theme: theme.clone(),
-        locales: read_json(&theme.join("locales/en.default.json"))?,
-        sources,
-        fixture,
-        globals,
-        styles: Mutex::new(Vec::new()),
-        calls: Mutex::new(BTreeMap::new()),
-        rendered_sources: Mutex::new(Vec::new()),
-        palette: Vec::new(),
-    };
-    let mut settings = context.setting_defaults(&schema);
-    let data = read_json(&theme.join("config/settings_data.json"))?;
-    merge(&mut settings, &data["current"]);
-    merge(&mut settings, &context.fixture["theme"]["settings"]);
-    let mut settings = liquid_core::model::to_object(&settings)?;
-    context.materialize_settings(&mut settings, &schema, &context.globals)?;
-    if let Some(colors) = settings.get("color_palette").and_then(ValueView::as_object) {
-        context.palette = colors
-            .iter()
-            .map(|(name, value)| {
-                FixtureColor::new(value.to_kstr().as_str()).map(|color| (name.into_owned(), color))
-            })
-            .collect::<Result<BTreeMap<_, _>>>()?
-            .into_values()
-            .collect();
-    }
-    context
-        .globals
-        .insert("settings".into(), Value::Object(settings));
-    let context = Arc::new(context);
-    let language = language(context.clone())?;
-    let partials = OnDemandCompiler::new(context.sources.clone()).compile(language.clone())?;
+    let start = Instant::now();
+    let mut renderer = Renderer::new(theme, &store, page, options.contains_key("--parse-source"))?;
+    let initialization_ms = start.elapsed().as_secs_f64() * 1000.0;
     if let Some(name) = options.get("--parse-source") {
-        let source = context
-            .sources
-            .try_get(name)
-            .ok_or("Missing diagnostic source")?;
-        liquid_core::parser::parse(&source, &language)?;
+        renderer.parse_source(name)?;
         println!("Parsed {name}");
         return Ok(());
     }
-    let page_template = context.fixture["pages"][page]["template"]
-        .as_str()
-        .ok_or("Missing page template")?;
-    let template = read_json(&theme.join(page_template))?;
-    let mut html = Vec::new();
-    let mut rendered = Vec::new();
-    let mut error = None;
-    for (position, id) in template["order"]
-        .as_array()
-        .ok_or("Missing section order")?
-        .iter()
-        .enumerate()
-    {
-        let id = id.as_str().ok_or("Invalid section ID")?;
-        let section = &template["sections"][id];
-        let kind = section["type"].as_str().ok_or("Missing section type")?;
-        if scope == "hero" && position != 0 {
-            continue;
-        }
-        if options
-            .get("--only")
-            .is_some_and(|only| only != kind && only != id)
+    if let Some(path) = options.get("--benchmark-json") {
+        let report = benchmark(&mut renderer, &options, initialization_ms)?;
+        let text = serde_json::to_string_pretty(&report)?;
+        if let Some(parent) = Path::new(path)
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
         {
-            continue;
+            fs::create_dir_all(parent)?;
         }
-        let render = (|| -> Result<Vec<u8>> {
-            let mut rendered = Vec::new();
-            context.render_section(&mut rendered, partials.as_ref(), id, section, position + 1)?;
-            Ok(rendered)
-        })();
-        match render {
-            Ok(bytes) => {
-                html.extend(bytes);
-                rendered.push(id.to_owned());
-            }
-            Err(failure) => {
-                error = Some(failure.to_string());
-                break;
-            }
-        }
+        fs::write(path, &text)?;
+        println!("{text}");
+        return Ok(());
     }
-    if error.is_none() && scope == "page" {
-        let render = (|| -> Result<Vec<u8>> {
-            let mut globals = context.globals.clone();
-            let body = String::from_utf8(html.clone()).map_err(failure)?;
-            globals.insert("content_for_layout".into(), Value::scalar(body));
-            globals.insert(
-                "content_for_header".into(),
-                Value::scalar("<!-- horizon-fixture-stylesheets -->"),
-            );
-            let runtime = RuntimeBuilder::new()
-                .set_globals(&globals)
-                .set_partials(partials.as_ref())
-                .build();
-            set_platform_bindings(&runtime, &globals);
-            let runtime = FixtureRuntime {
-                inner: &runtime,
-                name: "layout/theme",
-                palette: &context.palette,
-            };
-            let mut output = Vec::new();
-            context.record_source("layout/theme")?;
-            partials
-                .get("layout/theme")?
-                .render_to(&mut output, &runtime)?;
-            let body = String::from_utf8(output).map_err(failure)?;
-            let marker = "<!-- horizon-fixture-stylesheets -->";
-            if body.matches(marker).count() != 1 {
-                return Err(failure("Page layout must expose content_for_header once"));
-            }
-            let css = context
-                .styles
-                .lock()
-                .map_err(failure)?
-                .iter()
-                .map(|(_, body)| body.as_str())
-                .collect::<String>();
-            Ok(body
-                .replacen(
-                    marker,
-                    &format!("<style data-horizon-fixture>{css}</style>"),
-                    1,
-                )
-                .into_bytes())
-        })();
-        match render {
-            Ok(bytes) => html = bytes,
-            Err(failure) => error = Some(failure.to_string()),
-        }
-    }
-    fs::create_dir_all(&output)?;
-    fs::write(output.join(format!("{page}.html")), html)?;
-    let css = context
-        .styles
-        .lock()
-        .map_err(failure)?
-        .iter()
-        .map(|(_, body)| body.as_str())
-        .collect::<String>();
-    fs::write(output.join("styles.css"), css)?;
-    let report = json!({"engine":"liquid-rust","theme":context.fixture["theme"],"store_schema_version":context.fixture["schema_version"],"configuration":{"parsing":"strict","strict_variables":false,"strict_filters":true},"sections_rendered":rendered,"platform_calls":*context.calls.lock().map_err(failure)?,"sources":*context.rendered_sources.lock().map_err(failure)?,"platform_contract":{"pagination":"first page only","font":"configured Inter uses local system Arial","events":"synthetic product/cart view JSON","form_submission":"unsupported","cart_item_index":"derived zero-based index","payment_terms":"empty only when fixture explicitly disables service","optional_variables":"missing optional properties resolve to nil","clock":context.fixture["manifest"]["created_at"]},"error":error});
-    fs::write(
-        output.join("report.json"),
-        serde_json::to_string_pretty(&report)?,
-    )?;
-    if let Some(error) = error {
-        return Err(error.into());
-    }
-    println!("{}", output.join(format!("{page}.html")).display());
+    let output_dir = PathBuf::from(
+        options
+            .get("--output-dir")
+            .ok_or("--output-dir is required")?,
+    );
+    let output = renderer.render(scope, options.get("--only").map(String::as_str))?;
+    renderer.write_output(&output_dir, &output)?;
+    output.ensure_success()?;
+    println!("{}", output_dir.join(format!("{page}.html")).display());
     Ok(())
 }
 
@@ -2139,7 +2412,7 @@ mod tests {
         Arc::new(Context {
             theme: PathBuf::new(),
             locales: json!({}),
-            sources: Sources(
+            sources: Sources::new(
                 sources
                     .iter()
                     .map(|(name, body)| ((*name).to_owned(), (*body).to_owned()))
@@ -2151,6 +2424,8 @@ mod tests {
             calls: Mutex::new(BTreeMap::new()),
             rendered_sources: Mutex::new(Vec::new()),
             palette: Vec::new(),
+            json_cache: Mutex::new(BTreeMap::new()),
+            asset_cache: Mutex::new(BTreeMap::new()),
         })
     }
 
@@ -2393,5 +2668,112 @@ mod tests {
         let context = context(&[]);
         let values = liquid_core::object!({"items":[{"parent_relationship":Value::Nil}]});
         assert_eq!(render(context,"{% for item in items %}{% capture relation %}{{ item.parent_relationship.parent | default: 'absent' }}{% endcapture %}{{ relation }}{% endfor %}",values).unwrap(),"absent");
+    }
+    fn prepared(sources: &[(&str, &str)], sections: Json, order: Json) -> Renderer {
+        Renderer::from_context(
+            context(sources),
+            "index".to_owned(),
+            json!({"sections":sections,"order":order}),
+            "fixture-digest".to_owned(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn prepared_renderer_reuses_asts_but_clears_all_request_state() {
+        let mut renderer = prepared(&[("sections/sample", "{% stylesheet %}.fresh { color: red; }{% endstylesheet %}{{ section.id }}:{% increment counter %}{% schema %}{}{% endschema %}")],json!({"one":{"type":"sample"}}),json!(["one"]));
+        let original_globals = renderer.context.globals.clone();
+        let first = renderer.render("template", None).unwrap();
+        assert_eq!(
+            first.html,
+            b"<div id=\"shopify-section-one\" class=\"shopify-section\">one:0</div>"
+        );
+        assert_eq!(first.css, ".fresh { color: red; }");
+        let ast = renderer.partials.get("sections/sample").unwrap();
+        renderer
+            .context
+            .styles
+            .lock()
+            .unwrap()
+            .push(("stale".to_owned(), "stale css".to_owned()));
+        renderer
+            .context
+            .calls
+            .lock()
+            .unwrap()
+            .insert("stale".to_owned(), 99);
+        renderer
+            .context
+            .rendered_sources
+            .lock()
+            .unwrap()
+            .push("stale.liquid".to_owned());
+        let second = renderer.render("template", None).unwrap();
+        assert_eq!(first, second);
+        assert!(Arc::ptr_eq(
+            &ast,
+            &renderer.partials.get("sections/sample").unwrap()
+        ));
+        assert!(renderer
+            .context
+            .sources
+            .1
+            .lock()
+            .unwrap()
+            .contains_key("sections/sample"));
+        assert_eq!(renderer.context.globals, original_globals);
+        let report = renderer.report(&second).unwrap();
+        assert!(report["platform_calls"].get("stale").is_none());
+        assert_eq!(report["sources"], json!(["sections/sample.liquid"]));
+    }
+
+    #[test]
+    fn failed_request_does_not_pollute_later_successful_request() {
+        let mut renderer = prepared(&[("sections/good", "{% stylesheet %}.good {}{% endstylesheet %}ok{% schema %}{}{% endschema %}"),("sections/bad", "{% stylesheet %}.bad {}{% endstylesheet %}{{ 'value' | unavailable_fixture_filter }}{% schema %}{}{% endschema %}")],json!({"good":{"type":"good"},"bad":{"type":"bad"}}),json!(["good","bad"]));
+        let failed = renderer.render("template", None).unwrap();
+        assert!(failed
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("unavailable_fixture_filter"));
+        assert!(failed.css.contains(".bad"));
+        let succeeded = renderer.render("template", Some("good")).unwrap();
+        assert_eq!(succeeded.error, None);
+        assert_eq!(succeeded.css, ".good {}");
+        assert_eq!(succeeded.sections, vec!["good"]);
+        let report = renderer.report(&succeeded).unwrap();
+        assert_eq!(report["sources"], json!(["sections/good.liquid"]));
+        assert!(report["platform_calls"]
+            .get("unavailable_fixture_filter")
+            .is_none());
+    }
+
+    #[test]
+    fn benchmark_reports_each_checked_warm_result_and_rejects_unprimed_workload() {
+        let mut renderer = prepared(
+            &[("sections/sample", "rendered{% schema %}{}{% endschema %}")],
+            json!({"one":{"type":"sample"}}),
+            json!(["one"]),
+        );
+        let mut options = BTreeMap::from([
+            ("--scope".to_owned(), "template".to_owned()),
+            ("--iterations".to_owned(), "2".to_owned()),
+            ("--warmup".to_owned(), "1".to_owned()),
+        ]);
+        let report = benchmark(&mut renderer, &options, 1.0).unwrap();
+        assert_eq!(report["samples"].as_array().unwrap().len(), 2);
+        assert_eq!(report["samples_ms"].as_array().unwrap().len(), 2);
+        for sample in report["samples"].as_array().unwrap() {
+            assert_eq!(sample["html"], report["html"]);
+            assert_eq!(sample["css"], report["css"]);
+            assert!(sample["elapsed_ms"].as_f64().unwrap() >= 0.0);
+        }
+        assert_eq!(report["correctness_verified"], true);
+        assert_eq!(report["response_cache"], false);
+        options.insert("--warmup".to_owned(), "0".to_owned());
+        assert!(benchmark(&mut renderer, &options, 1.0)
+            .unwrap_err()
+            .to_string()
+            .contains("--warmup"));
     }
 }
