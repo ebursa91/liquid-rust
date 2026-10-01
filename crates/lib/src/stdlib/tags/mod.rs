@@ -1,15 +1,21 @@
 mod assign_tag;
 mod cycle_tag;
+mod echo_tag;
 mod include_tag;
 mod increment_tags;
+mod inline_comment_tag;
 mod interrupt_tags;
+mod liquid_tag;
 mod render_tag;
 
 pub use self::assign_tag::AssignTag;
 pub use self::cycle_tag::CycleTag;
+pub use self::echo_tag::EchoTag;
 pub use self::include_tag::IncludeTag;
 pub use self::increment_tags::DecrementTag;
 pub use self::increment_tags::IncrementTag;
+pub use self::inline_comment_tag::InlineCommentTag;
 pub use self::interrupt_tags::BreakTag;
 pub use self::interrupt_tags::ContinueTag;
+pub use self::liquid_tag::LiquidTag;
 pub use self::render_tag::RenderTag;

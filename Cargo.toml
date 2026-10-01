@@ -16,6 +16,7 @@ include = [
   "Cargo.lock",
   "LICENSE*",
   "README.md",
+  "docs/**/*",
   "examples/**/*"
 ]
 
@@ -97,6 +98,10 @@ codegen-units = 1
 lto = true
 # debug = "line-tables-only"  # requires Cargo 1.71
 
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+
 [package]
 name = "liquid"
 version = "0.26.11"
@@ -124,14 +129,17 @@ pre-release-replacements = [
 [features]
 default = ["stdlib"]
 stdlib = ["liquid-lib/stdlib"]
+profiling = ["liquid-core/profiling", "dep:tracing"]
 
 [dependencies]
 liquid-core = { version = "^0.26.11", path = "crates/core" }
 liquid-derive = { version = "^0.26.10", path = "crates/derive" }
 liquid-lib = { version = "^0.26.11", path = "crates/lib", optional = true }
 serde = { version = "1.0.157", features = ["derive"] }
+tracing = { version = "0.1.44", default-features = false, features = ["std"], optional = true }
 
 [dev-dependencies]
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry", "std", "fmt"] }
 serde_yaml = "0.8.26"
 tera = { version = "1.19", default-features = false }
 handlebars = "6.0"
@@ -140,6 +148,11 @@ serde_json = "1.0"
 regex = "1.10"
 criterion = "0.8"
 snapbox = "1.0.0"
+
+[[example]]
+name = "profiling"
+required-features = ["profiling", "stdlib"]
+test = true
 
 [[bench]]
 name = "liquid"

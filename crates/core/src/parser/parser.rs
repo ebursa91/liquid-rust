@@ -56,6 +56,8 @@ fn error_from_pair(pair: Pair, msg: String) -> Error {
 
 /// Parses the provided &str into a number of Renderable items.
 pub fn parse(text: &str, options: &Language) -> Result<Vec<Box<dyn Renderable>>> {
+    #[cfg(feature = "profiling")]
+    let _buffer = crate::profiling::ParseBufferGuard::new();
     let mut liquid = LiquidParser::parse(Rule::LaxLiquidFile, text)
         .expect("Parsing with Rule::LaxLiquidFile should not raise errors, but InvalidLiquid tokens instead.")
         .next()
@@ -149,7 +151,7 @@ fn parse_variable_pair(variable: Pair) -> Variable {
     let mut variable = Variable::with_literal(first_identifier);
 
     let indexes = indexes.map(|index| match index.as_rule() {
-        Rule::Identifier => Expression::with_literal(index.as_str().to_owned()),
+        Rule::VariableIdentifier => Expression::with_literal(index.as_str().to_owned()),
         Rule::Value => parse_value(index),
         _ => unreachable!(),
     });
@@ -185,6 +187,8 @@ fn parse_filter(filter: Pair, options: &Language) -> Result<Box<dyn Filter>> {
         panic!("Expected a filter.");
     }
 
+    #[cfg(feature = "profiling")]
+    let position = crate::profiling::Position::new(filter.as_span().start_pos());
     let filter_str = filter.as_str();
     let mut filter = filter.into_inner();
     let name = filter.next().expect("A filter always has a name.").as_str();
@@ -230,6 +234,8 @@ fn parse_filter(filter: Pair, options: &Language) -> Result<Box<dyn Filter>> {
         .context_key("filter")
         .value_with(|| filter_str.to_string().into())?;
 
+    #[cfg(feature = "profiling")]
+    let f = crate::profiling::ProfiledFilter::wrap(f, position, name);
     Ok(f)
 }
 
@@ -297,35 +303,13 @@ impl<'a, 'b> TagBlock<'a, 'b> {
 
         // Tags are treated separately so as to check for a possible `{% endtag %}`
         if element.as_rule() == Rule::Tag {
-            let as_str = element.as_str();
-            let mut tag = element
-                .into_inner()
-                .next()
-                .expect("Unwrapping TagInner")
-                .into_inner();
-            let name = tag.next().expect("Tags start by their identifier.");
-            let name_str = name.as_str();
-
-            // Check if this tag is the same as the block's reflected end-tag.
-            if name_str == self.end_tag {
-                // Then this is a block ending tag and will close the block.
-
-                // no more arguments should be supplied, trying to supply them is an error
-                if let Some(token) = tag.next() {
-                    return TagToken::from(token).raise_error().into_err();
-                }
-
+            let mut tag = Tag::from(element);
+            if tag.name() == self.end_tag {
+                tag.tokens().expect_nothing()?;
                 self.closed = true;
                 return Ok(None);
-            } else {
-                // Then this is a regular tag
-                let tokens = TagTokenIter::new(&name, tag);
-                return Ok(Some(BlockElement::Tag(Tag {
-                    name,
-                    tokens,
-                    as_str,
-                })));
             }
+            return Ok(Some(BlockElement::Tag(tag)));
         }
         Ok(Some(element.into()))
     }
@@ -372,19 +356,15 @@ impl<'a, 'b> TagBlock<'a, 'b> {
 
             // Tags are potentially `{% endtag %}`
             if element.as_rule() == Rule::Tag {
-                let mut tag = element
-                    .into_inner()
-                    .next()
-                    .expect("Unwrapping TagInner")
-                    .into_inner();
-                let name = tag.next().expect("Tags start by their identifier.");
-                let name_str = name.as_str();
+                let mut tag = Tag::from(element);
+                let is_end = tag.name() == self.end_tag;
+                let is_start = tag.name() == self.start_tag;
 
                 // Check if this tag is the same as the block's reflected end-tag.
-                if name_str == self.end_tag {
+                if is_end {
                     // No more arguments should be supplied. If they are, it is
                     // assumed not to be a tag closer.
-                    if tag.next().is_none() {
+                    if tag.tokens().next().is_none() {
                         nesting_level -= 1;
                         if nesting_level == 0 {
                             self.closed = true;
@@ -397,7 +377,7 @@ impl<'a, 'b> TagBlock<'a, 'b> {
                             return Ok(output);
                         }
                     }
-                } else if name_str == self.start_tag && allow_nesting {
+                } else if is_start && allow_nesting {
                     // Going deeper in the nested blocks.
                     nesting_level += 1;
                 }
@@ -444,6 +424,8 @@ impl<'a, 'b> TagBlock<'a, 'b> {
 /// An element that is raw text.
 pub struct Raw<'a> {
     text: &'a str,
+    #[cfg(feature = "profiling")]
+    position: crate::profiling::Position,
 }
 impl<'a> From<Pair<'a>> for Raw<'a> {
     fn from(element: Pair<'a>) -> Self {
@@ -452,6 +434,8 @@ impl<'a> From<Pair<'a>> for Raw<'a> {
         }
         Raw {
             text: element.as_str(),
+            #[cfg(feature = "profiling")]
+            position: crate::profiling::Position::new(element.as_span().start_pos()),
         }
     }
 }
@@ -464,7 +448,10 @@ impl<'a> Into<&'a str> for Raw<'a> {
 impl<'a> Raw<'a> {
     /// Turns the text into a Renderable.
     pub fn into_renderable(self) -> Box<dyn Renderable> {
-        Box::new(Text::new(self.as_str()))
+        let inner: Box<dyn Renderable> = Box::new(Text::new(self.as_str()));
+        #[cfg(feature = "profiling")]
+        let inner = crate::profiling::ProfiledRenderable::wrap(inner, self.position, "text", None);
+        inner
     }
 
     /// Returns the text as a str.
@@ -478,6 +465,8 @@ pub struct Tag<'a> {
     name: Pair<'a>,
     tokens: TagTokenIter<'a>,
     as_str: &'a str,
+    #[cfg(feature = "profiling")]
+    position: crate::profiling::Position,
 }
 
 impl<'a> From<Pair<'a>> for Tag<'a> {
@@ -485,19 +474,32 @@ impl<'a> From<Pair<'a>> for Tag<'a> {
         if element.as_rule() != Rule::Tag {
             panic!("Only rule Tag can be converted to Tag.");
         }
+        #[cfg(feature = "profiling")]
+        let position = crate::profiling::Position::new(element.as_span().start_pos());
         let as_str = element.as_str();
         let mut tag = element
             .into_inner()
             .next()
             .expect("Unwrapping TagInner.")
             .into_inner();
-        let name = tag.next().expect("A tag starts with an identifier.");
+        let first = tag.next().expect("A tag starts with an identifier.");
+        let name = if matches!(
+            first.as_rule(),
+            Rule::LiquidTagInner | Rule::InlineCommentInner
+        ) {
+            tag = first.into_inner();
+            tag.next().expect("A tag starts with an identifier.")
+        } else {
+            first
+        };
         let tokens = TagTokenIter::new(&name, tag);
 
         Tag {
             name,
             tokens,
             as_str,
+            #[cfg(feature = "profiling")]
+            position,
         }
     }
 }
@@ -507,6 +509,8 @@ impl<'a> Tag<'a> {
     ///
     /// This is used as a debug tool. It allows to easily build tags in unit tests.
     pub fn new(text: &'a str) -> Result<Self> {
+        #[cfg(feature = "profiling")]
+        let _buffer = crate::profiling::ParseBufferGuard::new();
         let tag = LiquidParser::parse(Rule::Tag, text)
             .map_err(convert_pest_error)?
             .next()
@@ -550,16 +554,31 @@ impl<'a> Tag<'a> {
         next_elements: &mut dyn Iterator<Item = Pair>,
         options: &Language,
     ) -> Result<Box<dyn Renderable>> {
+        #[cfg(feature = "profiling")]
+        let location = self.position;
+        #[cfg(feature = "profiling")]
+        let _buffer = location.enter();
         let (name, tokens) = (self.name, self.tokens);
         let position = name.as_span();
         let name = name.as_str();
 
         if let Some(plugin) = options.tags.get(name) {
-            plugin.parse(tokens, options)
+            let node = plugin.parse(tokens, options)?;
+            #[cfg(feature = "profiling")]
+            let node =
+                crate::profiling::ProfiledRenderable::wrap(node, location, "tag", Some(name));
+            Ok(node)
         } else if let Some(plugin) = options.blocks.get(name) {
             let reflection = plugin.reflection();
             let block = TagBlock::new(reflection.start_tag(), reflection.end_tag(), next_elements);
             let renderables = plugin.parse(tokens, block, options)?;
+            #[cfg(feature = "profiling")]
+            let renderables = crate::profiling::ProfiledRenderable::wrap(
+                renderables,
+                location,
+                "block",
+                Some(name),
+            );
             Ok(renderables)
         } else {
             let pest_error = ::pest::error::Error::new_from_span(
@@ -600,6 +619,8 @@ impl<'a> From<Pair<'a>> for Exp<'a> {
 impl Exp<'_> {
     /// Parses the expression just as if it weren't inside any block.
     pub fn parse(self, options: &Language) -> Result<Box<dyn Renderable>> {
+        #[cfg(feature = "profiling")]
+        let position = crate::profiling::Position::new(self.element.as_span().start_pos());
         let filter_chain = self
             .element
             .into_inner()
@@ -610,7 +631,10 @@ impl Exp<'_> {
             .expect("An expression consists of one filterchain.");
 
         let filter_chain = parse_filter_chain(filter_chain, options)?;
-        Ok(Box::new(filter_chain))
+        let node: Box<dyn Renderable> = Box::new(filter_chain);
+        #[cfg(feature = "profiling")]
+        let node = crate::profiling::ProfiledRenderable::wrap(node, position, "output", None);
+        Ok(node)
     }
 
     /// Returns the expression as a str.
@@ -924,8 +948,8 @@ impl<'a> TagToken<'a> {
         let identifier = indexes
             .next()
             .expect("Unwrapping identifier out of variable.");
-        if indexes.next().is_some() {
-            // There are indexes: it can't be a value
+        if indexes.next().is_some() || identifier.as_str().ends_with('?') {
+            // Properties can use ?, but declarations require a plain identifier.
             return Err(());
         }
 
@@ -1047,6 +1071,11 @@ impl<'a> TagToken<'a> {
     /// Returns token as a str.
     pub fn as_str(&self) -> &str {
         self.token.as_str().trim()
+    }
+
+    /// Returns the token's original text, preserving whitespace and line boundaries.
+    pub fn as_raw_str(&self) -> &str {
+        self.token.as_str()
     }
 }
 

@@ -64,6 +64,10 @@ impl IfChanged {
 }
 
 impl Renderable for IfChanged {
+    fn is_blank(&self) -> bool {
+        self.if_changed.is_blank()
+    }
+
     fn render_to(&self, writer: &mut dyn Write, runtime: &dyn Runtime) -> Result<()> {
         let mut rendered = Vec::new();
         self.if_changed

@@ -15,7 +15,8 @@ mod string;
 mod url;
 
 pub use self::array::{
-    Compact, Concat, First, Join, Last, Map, Reverse, Sort, SortNatural, Uniq, Where,
+    Compact, Concat, FindIndex, First, Has, Join, Last, Map, Reverse, Sort, SortNatural, Uniq,
+    Where,
 };
 pub use self::date::Date;
 pub use self::html::{Escape, EscapeOnce, NewlineToBr, StripHtml};
@@ -60,6 +61,11 @@ impl Filter for SizeFilter {
 struct DefaultArgs {
     #[parameter(description = "The default value.")]
     default: Expression,
+    #[parameter(
+        description = "Preserve false instead of using the default.",
+        mode = "keyword"
+    )]
+    allow_false: Option<Expression>,
 }
 
 #[derive(Clone, ParseFilter, FilterReflection)]
@@ -82,7 +88,11 @@ impl Filter for DefaultFilter {
     fn evaluate(&self, input: &dyn ValueView, runtime: &dyn Runtime) -> Result<Value> {
         let args = self.args.evaluate(runtime)?;
 
-        if input.query_state(liquid_core::model::State::DefaultValue) {
+        let preserve_false = args.allow_false.as_ref().is_some_and(|value| {
+            !value.is_nil() && value.as_scalar().and_then(|scalar| scalar.to_bool()) != Some(false)
+        }) && input.as_scalar().and_then(|value| value.to_bool())
+            == Some(false);
+        if input.query_state(liquid_core::model::State::DefaultValue) && !preserve_false {
             Ok(args.default.to_value())
         } else {
             Ok(input.to_value())

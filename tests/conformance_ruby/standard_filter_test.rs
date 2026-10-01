@@ -194,6 +194,51 @@ fn test_split() {
 }
 
 #[test]
+fn split_matches_ruby_trailing_fields_unicode_and_literal_separator_rules() {
+    // Original probes checked against Shopify Liquid 5.14.0 (4e39ae4).
+    for (input, pattern, expected) in [
+        (v!(""), v!(","), v!([])),
+        (v!("a,"), v!(","), v!(["a"])),
+        (v!("a,,"), v!(","), v!(["a"])),
+        (v!(",,,"), v!(","), v!([])),
+        (v!(",a,,b,,"), v!(","), v!(["", "a", "", "b"])),
+        (v!("a,,b"), v!(","), v!(["a", "", "b"])),
+        (v!("aaa"), v!("aa"), v!(["", "a"])),
+        (v!("aaaa"), v!("aa"), v!([])),
+        (v!("aaaaa"), v!("aa"), v!(["", "", "a"])),
+        (v!("éé"), v!("é"), v!([])),
+        (v!("🌊~🌲~~"), v!("~"), v!(["🌊", "🌲"])),
+        (v!("a..b."), v!("."), v!(["a", "", "b"])),
+        (v!("é🌊"), v!(""), v!(["é", "🌊"])),
+        (v!(""), v!(""), v!([])),
+        (v!("abc"), Nil, v!(["a", "b", "c"])),
+        (v!(123), v!(""), v!(["1", "2", "3"])),
+        (Nil, v!(","), v!([])),
+        (v!(false), v!(""), v!(["f", "a", "l", "s", "e"])),
+        (v!(" a  b \t c\n"), v!(" "), v!(["a", "b", "c"])),
+        (v!("\u{000b}A\u{000c}B\rC"), v!(" "), v!(["A", "B", "C"])),
+        (v!("a\u{00a0}b"), v!(" "), v!(["a\u{00a0}b"])),
+        (
+            v!("\u{00a0} a \u{00a0}"),
+            v!(" "),
+            v!(["\u{00a0}", "a", "\u{00a0}"]),
+        ),
+        (v!(" a  b "), v!("  "), v!([" a", "b "])),
+        (v!("a\0b"), v!(" "), v!(["a\0b"])),
+    ] {
+        assert_eq!(
+            call_filter!(liquid_lib::stdlib::Split, &input, &pattern).unwrap(),
+            expected,
+            "input={input:?}, pattern={pattern:?}"
+        );
+    }
+    assert_template_result!(
+        "--slide-0",
+        "{{ '--slide-0,' | split: ',' | compact | join: ',' }}"
+    );
+}
+
+#[test]
 fn test_escape() {
     assert_eq!(
         v!("&lt;strong&gt;"),
@@ -1008,7 +1053,6 @@ fn test_newlines_to_br() {
 }
 
 #[test]
-#[should_panic] // liquid-rust#260
 fn test_plus() {
     assert_template_result!("2", r#"{{ 1 | plus:1 }}"#);
     assert_template_result!("2.0", r#"{{ "1" | plus:"1.0" }}"#);
@@ -1331,4 +1375,55 @@ fn test_where_no_target_value() {
         v!([{ "foo": true }, { "foo": "for sure" }]),
         call_filter!(liquid_lib::stdlib::Where, input, v!("foo")).unwrap()
     );
+}
+
+#[test]
+fn default_allow_false_preserves_false_without_preserving_empty_values() {
+    let parser = liquid::ParserBuilder::with_stdlib().build().unwrap();
+    let globals =
+        liquid::object!({"fallback": "fallback", "keep": true, "reject": false, "items": []});
+    for (source, expected) in [
+        ("{{ false | default: fallback }}", "fallback"),
+        (
+            "{{ false | default: fallback, allow_false: keep }}",
+            "false",
+        ),
+        (
+            "{{ false | default: fallback, allow_false: reject }}",
+            "fallback",
+        ),
+        (
+            "{{ false | default: fallback, allow_false: nil }}",
+            "fallback",
+        ),
+        ("{{ false | default: fallback, allow_false: 0 }}", "false"),
+        ("{{ false | default: fallback, allow_false: '' }}", "false"),
+        (
+            "{{ false | default: fallback, allow_false: empty }}",
+            "false",
+        ),
+        (
+            "{{ false | default: fallback, allow_false: blank }}",
+            "false",
+        ),
+        (
+            "{{ nil | default: fallback, allow_false: true }}",
+            "fallback",
+        ),
+        (
+            "{{ '' | default: fallback, allow_false: true }}",
+            "fallback",
+        ),
+        (
+            "{{ items | default: fallback, allow_false: true }}",
+            "fallback",
+        ),
+        ("{{ 0 | default: fallback, allow_false: true }}", "0"),
+    ] {
+        assert_eq!(
+            parser.parse(source).unwrap().render(&globals).unwrap(),
+            expected,
+            "{source}"
+        );
+    }
 }

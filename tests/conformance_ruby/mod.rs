@@ -20,3 +20,12 @@ mod standard_filter_test;
 mod template_test;
 mod trim_mode_test;
 mod variable_test;
+
+#[cfg(feature = "stdlib")]
+mod find_index_test;
+
+#[cfg(feature = "stdlib")]
+mod math_decimal_test;
+
+#[cfg(feature = "stdlib")]
+mod has_test;

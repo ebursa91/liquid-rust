@@ -29,6 +29,19 @@ impl<P: super::Runtime, O: ObjectView> StackFrame<P, O> {
 }
 
 impl<P: super::Runtime, O: ObjectView> super::Runtime for StackFrame<P, O> {
+    fn strict_variables(&self) -> bool {
+        self.parent.strict_variables()
+    }
+
+    fn project_value<'a>(
+        &'a self,
+        value: ValueCow<'a>,
+        scope: &'a dyn super::Runtime,
+        path: Option<&[ScalarCow<'_>]>,
+    ) -> ValueCow<'a> {
+        self.parent.project_value(value, scope, path)
+    }
+
     fn partials(&self) -> &dyn super::PartialStore {
         self.parent.partials()
     }
@@ -47,27 +60,35 @@ impl<P: super::Runtime, O: ObjectView> super::Runtime for StackFrame<P, O> {
     }
 
     fn try_get(&self, path: &[ScalarCow<'_>]) -> Option<ValueCow<'_>> {
-        let key = path.first()?;
-        let key = key.to_kstr();
-        let data = &self.data;
-        if data.contains_key(key.as_str()) {
-            crate::model::try_find(data.as_value(), path)
-        } else {
-            self.parent.try_get(path)
-        }
+        profiling_frame!(try, "stack", path, span, {
+            let key = path.first()?;
+            let key = key.to_kstr();
+            let data = &self.data;
+            if data.contains_key(key.as_str()) {
+                crate::model::try_find(data.as_value(), path)
+            } else {
+                #[cfg(feature = "profiling")]
+                span.record("delegated", true);
+                self.parent.try_get(path)
+            }
+        })
     }
 
     fn get(&self, path: &[ScalarCow<'_>]) -> Result<ValueCow<'_>> {
-        let key = path.first().ok_or_else(|| {
-            Error::with_msg("Unknown variable").context("requested variable", "nil")
-        })?;
-        let key = key.to_kstr();
-        let data = &self.data;
-        if data.contains_key(key.as_str()) {
-            crate::model::find(data.as_value(), path).map(|v| v.into_owned().into())
-        } else {
-            self.parent.get(path)
-        }
+        profiling_frame!(strict, "stack", path, span, {
+            let key = path.first().ok_or_else(|| {
+                Error::with_msg("Unknown variable").context("requested variable", "nil")
+            })?;
+            let key = key.to_kstr();
+            let data = &self.data;
+            if data.contains_key(key.as_str()) {
+                crate::model::find(data.as_value(), path).map(|v| v.into_owned().into())
+            } else {
+                #[cfg(feature = "profiling")]
+                span.record("delegated", true);
+                self.parent.get(path)
+            }
+        })
     }
 
     fn set_global(
@@ -108,6 +129,19 @@ impl<P: super::Runtime> GlobalFrame<P> {
 }
 
 impl<P: super::Runtime> super::Runtime for GlobalFrame<P> {
+    fn strict_variables(&self) -> bool {
+        self.parent.strict_variables()
+    }
+
+    fn project_value<'a>(
+        &'a self,
+        value: ValueCow<'a>,
+        scope: &'a dyn super::Runtime,
+        path: Option<&[ScalarCow<'_>]>,
+    ) -> ValueCow<'a> {
+        self.parent.project_value(value, scope, path)
+    }
+
     fn partials(&self) -> &dyn super::PartialStore {
         self.parent.partials()
     }
@@ -123,27 +157,35 @@ impl<P: super::Runtime> super::Runtime for GlobalFrame<P> {
     }
 
     fn try_get(&self, path: &[ScalarCow<'_>]) -> Option<ValueCow<'_>> {
-        let key = path.first()?;
-        let key = key.to_kstr();
-        let data = self.data.borrow();
-        if data.contains_key(key.as_str()) {
-            crate::model::try_find(data.as_value(), path).map(|v| v.into_owned().into())
-        } else {
-            self.parent.try_get(path)
-        }
+        profiling_frame!(try, "global", path, span, {
+            let key = path.first()?;
+            let key = key.to_kstr();
+            let data = self.data.borrow();
+            if data.contains_key(key.as_str()) {
+                crate::model::try_find(data.as_value(), path).map(|v| v.into_owned().into())
+            } else {
+                #[cfg(feature = "profiling")]
+                span.record("delegated", true);
+                self.parent.try_get(path)
+            }
+        })
     }
 
     fn get(&self, path: &[ScalarCow<'_>]) -> Result<ValueCow<'_>> {
-        let key = path.first().ok_or_else(|| {
-            Error::with_msg("Unknown variable").context("requested variable", "nil")
-        })?;
-        let key = key.to_kstr();
-        let data = self.data.borrow();
-        if data.contains_key(key.as_str()) {
-            crate::model::find(data.as_value(), path).map(|v| v.into_owned().into())
-        } else {
-            self.parent.get(path)
-        }
+        profiling_frame!(strict, "global", path, span, {
+            let key = path.first().ok_or_else(|| {
+                Error::with_msg("Unknown variable").context("requested variable", "nil")
+            })?;
+            let key = key.to_kstr();
+            let data = self.data.borrow();
+            if data.contains_key(key.as_str()) {
+                crate::model::find(data.as_value(), path).map(|v| v.into_owned().into())
+            } else {
+                #[cfg(feature = "profiling")]
+                span.record("delegated", true);
+                self.parent.get(path)
+            }
+        })
     }
 
     fn set_global(
@@ -183,6 +225,19 @@ impl<P: super::Runtime> IndexFrame<P> {
 }
 
 impl<P: super::Runtime> super::Runtime for IndexFrame<P> {
+    fn strict_variables(&self) -> bool {
+        self.parent.strict_variables()
+    }
+
+    fn project_value<'a>(
+        &'a self,
+        value: ValueCow<'a>,
+        scope: &'a dyn super::Runtime,
+        path: Option<&[ScalarCow<'_>]>,
+    ) -> ValueCow<'a> {
+        self.parent.project_value(value, scope, path)
+    }
+
     fn partials(&self) -> &dyn super::PartialStore {
         self.parent.partials()
     }
@@ -198,27 +253,35 @@ impl<P: super::Runtime> super::Runtime for IndexFrame<P> {
     }
 
     fn try_get(&self, path: &[ScalarCow<'_>]) -> Option<ValueCow<'_>> {
-        let key = path.first()?;
-        let key = key.to_kstr();
-        let data = self.data.borrow();
-        if data.contains_key(key.as_str()) {
-            crate::model::try_find(data.as_value(), path).map(|v| v.into_owned().into())
-        } else {
-            self.parent.try_get(path)
-        }
+        profiling_frame!(try, "index", path, span, {
+            let key = path.first()?;
+            let key = key.to_kstr();
+            let data = self.data.borrow();
+            if data.contains_key(key.as_str()) {
+                crate::model::try_find(data.as_value(), path).map(|v| v.into_owned().into())
+            } else {
+                #[cfg(feature = "profiling")]
+                span.record("delegated", true);
+                self.parent.try_get(path)
+            }
+        })
     }
 
     fn get(&self, path: &[ScalarCow<'_>]) -> Result<ValueCow<'_>> {
-        let key = path.first().ok_or_else(|| {
-            Error::with_msg("Unknown variable").context("requested variable", "nil")
-        })?;
-        let key = key.to_kstr();
-        let data = self.data.borrow();
-        if data.contains_key(key.as_str()) {
-            crate::model::find(data.as_value(), path).map(|v| v.into_owned().into())
-        } else {
-            self.parent.get(path)
-        }
+        profiling_frame!(strict, "index", path, span, {
+            let key = path.first().ok_or_else(|| {
+                Error::with_msg("Unknown variable").context("requested variable", "nil")
+            })?;
+            let key = key.to_kstr();
+            let data = self.data.borrow();
+            if data.contains_key(key.as_str()) {
+                crate::model::find(data.as_value(), path).map(|v| v.into_owned().into())
+            } else {
+                #[cfg(feature = "profiling")]
+                span.record("delegated", true);
+                self.parent.get(path)
+            }
+        })
     }
 
     fn set_global(
@@ -271,6 +334,19 @@ impl<P: super::Runtime, O: ObjectView> SandboxedStackFrame<P, O> {
 }
 
 impl<P: super::Runtime, O: ObjectView> super::Runtime for SandboxedStackFrame<P, O> {
+    fn strict_variables(&self) -> bool {
+        self.parent.strict_variables()
+    }
+
+    fn project_value<'a>(
+        &'a self,
+        value: ValueCow<'a>,
+        scope: &'a dyn super::Runtime,
+        path: Option<&[ScalarCow<'_>]>,
+    ) -> ValueCow<'a> {
+        self.parent.project_value(value, scope, path)
+    }
+
     fn partials(&self) -> &dyn super::PartialStore {
         self.parent.partials()
     }
@@ -289,23 +365,29 @@ impl<P: super::Runtime, O: ObjectView> super::Runtime for SandboxedStackFrame<P,
     }
 
     fn try_get(&self, path: &[ScalarCow<'_>]) -> Option<ValueCow<'_>> {
-        let key = path.first()?;
-        let key = key.to_kstr();
-        let data = &self.data;
-        data.get(key.as_str())
-            .and_then(|_| crate::model::try_find(data.as_value(), path))
+        profiling_frame!(try, "sandbox", path, _span, {
+            let key = path.first()?;
+            let key = key.to_kstr();
+            let data = &self.data;
+            data.get(key.as_str())
+                .and_then(|_| crate::model::try_find(data.as_value(), path))
+        })
     }
 
     fn get(&self, path: &[ScalarCow<'_>]) -> Result<ValueCow<'_>> {
-        let key = path.first().ok_or_else(|| {
-            Error::with_msg("Unknown variable").context("requested variable", "nil")
-        })?;
-        let key = key.to_kstr();
-        let data = &self.data;
-        data.get(key.as_str())
-            .and_then(|_| crate::model::try_find(data.as_value(), path))
-            .map(|v| v.into_owned().into())
-            .ok_or_else(|| Error::with_msg("Unknown variable").context("requested variable", key))
+        profiling_frame!(strict, "sandbox", path, _span, {
+            let key = path.first().ok_or_else(|| {
+                Error::with_msg("Unknown variable").context("requested variable", "nil")
+            })?;
+            let key = key.to_kstr();
+            let data = &self.data;
+            data.get(key.as_str())
+                .and_then(|_| crate::model::try_find(data.as_value(), path))
+                .map(|v| v.into_owned().into())
+                .ok_or_else(|| {
+                    Error::with_msg("Unknown variable").context("requested variable", key)
+                })
+        })
     }
 
     fn set_global(
@@ -334,6 +416,214 @@ mod tests {
     use crate::{runtime::RuntimeBuilder, Runtime};
 
     use super::*;
+
+    fn evaluate(source: &str, runtime: &dyn Runtime) -> Value {
+        let expression =
+            crate::runtime::Expression::Variable(crate::parser::parse_variable(source).unwrap());
+        expression.evaluate(runtime).unwrap().into_owned()
+    }
+
+    struct ProjectedRuntime<'r>(&'r dyn Runtime);
+    impl Runtime for ProjectedRuntime<'_> {
+        fn strict_variables(&self) -> bool {
+            self.0.strict_variables()
+        }
+        fn project_value<'a>(
+            &'a self,
+            value: ValueCow<'a>,
+            scope: &'a dyn Runtime,
+            path: Option<&[ScalarCow<'_>]>,
+        ) -> ValueCow<'a> {
+            if let Some((property, prefix)) = path.and_then(|path| path.split_last()) {
+                if property.to_kstr() == "size" {
+                    if let Some(label) = scope.try_get(prefix).and_then(|value| {
+                        value
+                            .as_object()?
+                            .get("label")
+                            .map(|label| label.to_kstr().into_owned())
+                    }) {
+                        return ValueCow::Owned(Value::scalar(label.chars().count() as i64));
+                    }
+                }
+            }
+            if value
+                .as_scalar()
+                .is_some_and(|scalar| scalar.to_kstr() == "raw")
+            {
+                ValueCow::Owned(Value::scalar("projected"))
+            } else {
+                value
+            }
+        }
+        fn partials(&self) -> &dyn super::super::PartialStore {
+            self.0.partials()
+        }
+        fn name(&self) -> Option<crate::model::KStringRef<'_>> {
+            self.0.name()
+        }
+        fn roots(&self) -> std::collections::BTreeSet<crate::model::KStringCow<'_>> {
+            self.0.roots()
+        }
+        fn try_get(&self, path: &[ScalarCow<'_>]) -> Option<ValueCow<'_>> {
+            self.0.try_get(path)
+        }
+        fn get(&self, path: &[ScalarCow<'_>]) -> Result<ValueCow<'_>> {
+            self.0.get(path)
+        }
+        fn set_global(&self, name: crate::model::KString, value: Value) -> Option<Value> {
+            self.0.set_global(name, value)
+        }
+        fn set_index(&self, name: crate::model::KString, value: Value) -> Option<Value> {
+            self.0.set_index(name, value)
+        }
+        fn get_index(&self, name: &str) -> Option<ValueCow<'_>> {
+            self.0.get_index(name)
+        }
+        fn registers(&self) -> &super::super::Registers {
+            self.0.registers()
+        }
+    }
+
+    #[test]
+    fn expression_projection_delegates_through_frames_and_preserves_lookup_boundaries() {
+        let globals = crate::object!({"public":"raw","private":"secret"});
+        let runtime = RuntimeBuilder::new()
+            .set_globals(&globals)
+            .set_strict_variables(false)
+            .build();
+        let projected = ProjectedRuntime(&runtime);
+        let reference = &projected;
+        assert_eq!(evaluate("public", &reference), Value::scalar("projected"));
+        assert_eq!(
+            projected.get(&["public".into()]).unwrap().to_value(),
+            Value::scalar("raw")
+        );
+        let locals = crate::object!({"local":"raw"});
+        let stack = StackFrame::new(&projected, &locals);
+        let indexes = IndexFrame::new(&stack);
+        let assigned = GlobalFrame::new(&indexes);
+        assigned.set_global("saved".into(), Value::scalar("raw"));
+        assigned.set_index("counter".into(), Value::scalar("raw"));
+        for source in ["public", "local", "saved", "counter"] {
+            assert_eq!(evaluate(source, &assigned), Value::scalar("projected"));
+            let expression = crate::runtime::Expression::Variable(
+                crate::parser::parse_variable(source).unwrap(),
+            );
+            assert_eq!(
+                expression.try_evaluate(&assigned).unwrap().to_value(),
+                Value::scalar("projected")
+            );
+        }
+        let sandbox = SandboxedStackFrame::new(&assigned, &locals);
+        assert_eq!(evaluate("local", &sandbox), Value::scalar("projected"));
+        for hidden in ["public", "private", "saved", "counter"] {
+            assert!(evaluate(hidden, &sandbox).is_nil());
+            assert!(sandbox.get(&[hidden.into()]).is_err());
+        }
+    }
+
+    #[test]
+    fn default_projection_preserves_borrowed_and_owned_values() {
+        let runtime = RuntimeBuilder::new().build();
+        let value = Value::scalar("raw");
+        assert!(matches!(
+            runtime.project_value(ValueCow::Borrowed(&value), &runtime, None),
+            ValueCow::Borrowed(_)
+        ));
+        assert!(matches!(
+            runtime.project_value(ValueCow::Owned(value.clone()), &runtime, None),
+            ValueCow::Owned(_)
+        ));
+        assert_eq!(
+            runtime
+                .project_value(ValueCow::Borrowed(&value), &runtime, None)
+                .to_value(),
+            value
+        );
+        let missing =
+            crate::runtime::Expression::Variable(crate::parser::parse_variable("missing").unwrap());
+        assert!(missing.evaluate(&runtime).is_err());
+        assert!(missing.try_evaluate(&runtime).is_none());
+    }
+
+    #[test]
+    fn optional_policy_follows_frames_without_escaping_sandbox() {
+        let globals = crate::object!({"private": "parent", "object": {"key": "parent"}});
+        let runtime = RuntimeBuilder::new()
+            .set_globals(&globals)
+            .set_strict_variables(false)
+            .build();
+        let locals = crate::object!({"object": {}, "public": "local"});
+        let stack = StackFrame::new(&runtime, &locals);
+        assert!(!stack.strict_variables());
+        // A local root shadows its parent's entire value, including absent children.
+        assert_eq!(evaluate("object.key", &stack), Value::Nil);
+        assert_eq!(evaluate("private", &stack), Value::scalar("parent"));
+        let indexes = IndexFrame::new(&stack);
+        assert!(!indexes.strict_variables());
+        let assigned = GlobalFrame::new(&indexes);
+        assert!(!assigned.strict_variables());
+        assigned.set_global("saved".into(), Value::scalar("assigned"));
+        assigned.set_index("counter".into(), Value::scalar(2));
+        assert_eq!(evaluate("saved", &assigned), Value::scalar("assigned"));
+        assert_eq!(evaluate("counter", &assigned), Value::scalar(2));
+
+        let sandbox = SandboxedStackFrame::new(&assigned, &locals);
+        assert!(!sandbox.strict_variables());
+        for hidden in ["private", "saved", "counter"] {
+            assert_eq!(evaluate(hidden, &sandbox), Value::Nil, "{hidden}");
+            assert!(sandbox.get(&[hidden.into()]).is_err(), "{hidden}");
+        }
+        assert_eq!(evaluate("public", &sandbox), Value::scalar("local"));
+        let nested = StackFrame::new(&sandbox, crate::object!({"nested": "child"}));
+        assert!(!nested.strict_variables());
+        assert_eq!(evaluate("private", &nested), Value::Nil);
+        assert_eq!(evaluate("public", &nested), Value::scalar("local"));
+        assert_eq!(evaluate("nested", &nested), Value::scalar("child"));
+        assert_eq!(evaluate("saved", &assigned), Value::scalar("assigned"));
+    }
+
+    #[test]
+    fn property_projection_receives_active_scope_through_sandbox_and_assigned_frames() {
+        let globals = crate::object!({"item":{"label":"parent label","id":1},"private":{"label":"hidden","id":2}});
+        let runtime = RuntimeBuilder::new()
+            .set_globals(&globals)
+            .set_strict_variables(false)
+            .build();
+        let projected = ProjectedRuntime(&runtime);
+        let locals = crate::object!({"item":{"label":"x","id":3}});
+        let sandbox = SandboxedStackFrame::new(&projected, &locals);
+        let assigned = GlobalFrame::new(IndexFrame::new(StackFrame::new(&sandbox, Object::new())));
+        assert_eq!(evaluate("item.size", &assigned), Value::scalar(1));
+        assert!(evaluate("private.size", &assigned).is_nil());
+        assert!(evaluate("private[missing].size", &assigned).is_nil());
+        assigned.set_global(
+            "saved".into(),
+            crate::value!({"label":"saved local","id":4}),
+        );
+        assert_eq!(evaluate("saved.size", &assigned), Value::scalar(11));
+        assert_eq!(evaluate("item.size", &projected), Value::scalar(12));
+        assert!(sandbox.get(&["private".into(), "size".into()]).is_err());
+    }
+
+    #[test]
+    fn default_policy_stays_strict_through_frames() {
+        let runtime = RuntimeBuilder::new().build();
+        let stack = StackFrame::new(&runtime, Object::new());
+        let indexes = IndexFrame::new(&stack);
+        let assigned = GlobalFrame::new(&indexes);
+        let sandbox = SandboxedStackFrame::new(&assigned, Object::new());
+        assert!(stack.strict_variables());
+        assert!(indexes.strict_variables());
+        assert!(assigned.strict_variables());
+        assert!(sandbox.strict_variables());
+        let missing =
+            crate::runtime::Expression::Variable(crate::parser::parse_variable("missing").unwrap());
+        assert!(missing.evaluate(&stack).is_err());
+        assert!(missing.evaluate(&indexes).is_err());
+        assert!(missing.evaluate(&assigned).is_err());
+        assert!(missing.evaluate(&sandbox).is_err());
+    }
 
     #[test]
     fn test_opaque_stack_frame_try_get() {

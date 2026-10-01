@@ -268,6 +268,238 @@ impl Filter for WhereFilter {
     }
 }
 
+#[derive(Debug, FilterParameters)]
+struct FindIndexArgs {
+    #[parameter(description = "The property being matched", arg_type = "any")]
+    property: Expression,
+    #[parameter(
+        description = "The value the property is matched with",
+        arg_type = "any"
+    )]
+    target_value: Option<Expression>,
+}
+
+#[derive(Clone, ParseFilter, FilterReflection)]
+#[filter(
+    name = "find_index",
+    description = "Returns the index of the first item with the requested property value. \
+                   Without a target value, matches any truthy property.",
+    parameters(FindIndexArgs),
+    parsed(FindIndexFilter)
+)]
+pub struct FindIndex;
+
+#[derive(Debug, FromFilterParameters, Display_filter)]
+#[name = "find_index"]
+struct FindIndexFilter {
+    #[parameters]
+    args: FindIndexArgs,
+}
+
+#[derive(Clone, ParseFilter, FilterReflection)]
+#[filter(
+    name = "has",
+    description = "Returns whether any item has the requested property value. \
+                   Without a target value, matches any truthy property.",
+    parameters(FindIndexArgs),
+    parsed(HasFilter)
+)]
+pub struct Has;
+
+#[derive(Debug, FromFilterParameters, Display_filter)]
+#[name = "has"]
+struct HasFilter {
+    #[parameters]
+    args: FindIndexArgs,
+}
+
+impl Filter for HasFilter {
+    fn evaluate(&self, input: &dyn ValueView, runtime: &dyn Runtime) -> Result<Value> {
+        let args = self.args.evaluate(runtime)?;
+        let target = args.target_value.as_ref().filter(|value| !value.is_nil());
+        for item in flattened_sequence(input) {
+            let Some(value) = find_index_property(item, args.property.as_view())? else {
+                // Ruby returns nil for a non-indexable item, even for this boolean filter.
+                return Ok(Value::Nil);
+            };
+            let matches = match target {
+                Some(target) => find_index_equal(value.as_view(), target.as_view()),
+                None => {
+                    !value.is_nil()
+                        && value.as_scalar().and_then(|value| value.to_bool()) != Some(false)
+                }
+            };
+            if matches {
+                return Ok(Value::scalar(true));
+            }
+        }
+        Ok(Value::scalar(false))
+    }
+}
+
+// Ruby's InputIterator flattens nested arrays, while treating objects as one item.
+fn flattened_sequence(input: &dyn ValueView) -> impl Iterator<Item = &dyn ValueView> {
+    let mut iterators = vec![as_sequence(input)];
+    std::iter::from_fn(move || loop {
+        let iterator = iterators.last_mut()?;
+        if let Some(value) = iterator.next() {
+            if let Some(array) = value.as_array() {
+                iterators.push(array.values());
+            } else {
+                return Some(value);
+            }
+        } else {
+            iterators.pop();
+        }
+    })
+}
+
+// Standard filters use Ruby value equality, rather than Liquid condition
+// comparisons, which deliberately allow booleans to match other truthy values.
+fn find_index_equal(left: &dyn ValueView, right: &dyn ValueView) -> bool {
+    if left.is_nil() || right.is_nil() {
+        return left.is_nil() && right.is_nil();
+    }
+    if left.as_state().is_some() || right.as_state().is_some() {
+        return left.as_state() == right.as_state();
+    }
+    let left_bool = left.as_scalar().and_then(|value| value.to_bool());
+    let right_bool = right.as_scalar().and_then(|value| value.to_bool());
+    if left_bool.is_some() || right_bool.is_some() {
+        return left_bool == right_bool;
+    }
+    if let (Some(left), Some(right)) = (left.as_array(), right.as_array()) {
+        return left.size() == right.size()
+            && left
+                .values()
+                .zip(right.values())
+                .all(|(left, right)| find_index_equal(left, right));
+    }
+    if let (Some(left), Some(right)) = (left.as_object(), right.as_object()) {
+        return left.size() == right.size()
+            && left.iter().all(|(key, value)| {
+                right
+                    .get(key.as_str())
+                    .is_some_and(|other| find_index_equal(value, other))
+            });
+    }
+    match (left.as_scalar(), right.as_scalar()) {
+        (Some(left), Some(right)) => {
+            let numbers = match (left.type_name(), right.type_name()) {
+                ("whole number", "fractional number") => left.to_integer().zip(right.to_float()),
+                ("fractional number", "whole number") => right.to_integer().zip(left.to_float()),
+                _ => return left == right,
+            };
+            numbers.is_some_and(|(integer, float)| {
+                float.fract() == 0.0 && find_index_integer(float) == Some(integer)
+            })
+        }
+        _ => false,
+    }
+}
+
+// Guard before converting: casting an integer to f64 would lose equality beyond
+// 2^53, and an out-of-range float-to-integer cast would saturate.
+fn find_index_integer(value: f64) -> Option<i64> {
+    (value.is_finite() && value >= i64::MIN as f64 && value < -(i64::MIN as f64))
+        .then(|| value.trunc() as i64)
+}
+
+fn find_index_numeric_property(property: &dyn ValueView) -> Result<i64> {
+    let scalar = property
+        .as_scalar()
+        .ok_or_else(|| invalid_argument("property", "Cannot select this property"))?;
+    match property.type_name() {
+        "whole number" => scalar.to_integer(),
+        "fractional number" => scalar.to_float().and_then(find_index_integer),
+        _ => None,
+    }
+    .ok_or_else(|| invalid_argument("property", "Cannot select this property"))
+}
+
+// String#[] accepts a substring or character index; Integer#[] selects a bit.
+// Other scalar values do not support [] and make Ruby filter_array return nil.
+fn find_index_property<'a>(
+    item: &'a dyn ValueView,
+    property: &dyn ValueView,
+) -> Result<Option<ValueCow<'a>>> {
+    if let Some(object) = item.as_object() {
+        let value = if property.type_name() == "string" {
+            object
+                .get(property.to_kstr().as_str())
+                .unwrap_or(&Value::Nil)
+        } else {
+            &Value::Nil
+        };
+        return Ok(Some(ValueCow::Borrowed(value)));
+    }
+    if item.type_name() == "string" {
+        let text = item.to_kstr();
+        let value = if property.type_name() == "string" {
+            let needle = property.to_kstr();
+            if text.contains(needle.as_str()) {
+                Value::scalar(needle.into_owned())
+            } else {
+                Value::Nil
+            }
+        } else {
+            let mut index = find_index_numeric_property(property)?;
+            if index < 0 {
+                let length = i64::try_from(text.chars().count())
+                    .map_err(|_| invalid_input("String is too long"))?;
+                index = length.checked_add(index).unwrap_or(-1);
+            }
+            usize::try_from(index)
+                .ok()
+                .and_then(|index| text.chars().nth(index))
+                .map(|character| Value::scalar(character.to_string()))
+                .unwrap_or(Value::Nil)
+        };
+        return Ok(Some(ValueCow::Owned(value)));
+    }
+    if item.type_name() == "whole number" {
+        let index = find_index_numeric_property(property)?;
+        let integer = item
+            .as_scalar()
+            .and_then(|value| value.to_integer())
+            .ok_or_else(|| invalid_input("Integer expected"))?;
+        let bit = if index < 0 {
+            0
+        } else if index >= i64::BITS.into() {
+            i64::from(integer < 0)
+        } else {
+            (integer >> index) & 1
+        };
+        return Ok(Some(ValueCow::Owned(Value::scalar(bit))));
+    }
+    Ok(None)
+}
+
+impl Filter for FindIndexFilter {
+    fn evaluate(&self, input: &dyn ValueView, runtime: &dyn Runtime) -> Result<Value> {
+        let args = self.args.evaluate(runtime)?;
+        let target = args.target_value.as_ref().filter(|value| !value.is_nil());
+        for (index, item) in flattened_sequence(input).enumerate() {
+            let Some(value) = find_index_property(item, args.property.as_view())? else {
+                return Ok(Value::Nil);
+            };
+            let matches = match target {
+                Some(target) => find_index_equal(value.as_view(), target.as_view()),
+                None => {
+                    !value.is_nil()
+                        && value.as_scalar().and_then(|value| value.to_bool()) != Some(false)
+                }
+            };
+            if matches {
+                let index =
+                    i64::try_from(index).map_err(|_| invalid_input("Array is too large"))?;
+                return Ok(Value::scalar(index));
+            }
+        }
+        Ok(Value::Nil)
+    }
+}
+
 /// Removes any duplicate elements in an array.
 ///
 /// This has an O(n^2) worst-case complexity.
@@ -621,7 +853,7 @@ mod tests {
         let input = liquid_core::value!(["a", "b", "c"]);
         assert_eq!(
             liquid_core::call_filter!(Join, input, 1f64).unwrap(),
-            "a1b1c"
+            "a1.0b1.0c"
         );
     }
 
@@ -636,7 +868,7 @@ mod tests {
         let input = liquid_core::value!(["a", 1f64, "c"]);
         assert_eq!(
             liquid_core::call_filter!(Join, input, ",").unwrap(),
-            liquid_core::value!("a,1,c")
+            liquid_core::value!("a,1.0,c")
         );
     }
 

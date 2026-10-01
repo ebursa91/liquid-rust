@@ -99,7 +99,7 @@ mod tests {
     fn unit_date_bad_format_type() {
         assert_eq!(
             liquid_core::call_filter!(Date, "13 Jun 2016 02:30:00 +0300", 0f64).unwrap(),
-            liquid_core::value!("0")
+            liquid_core::value!("0.0")
         );
     }
 

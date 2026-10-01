@@ -396,3 +396,107 @@ macro_rules! call_filter {
             .and_then(|filter| $crate::Filter::evaluate(&*filter, &input, &runtime))
     }};
 }
+
+// The disabled forms expand to the original body: no spans, closures, metadata
+// or tracing dependency are present in the feature-off runtime.
+#[cfg(feature = "profiling")]
+macro_rules! profiling_result {
+    ($target:literal, $name:literal, {$($field:ident = $value:expr),* $(,)?}, $body:block) => {{
+        let span = tracing::trace_span!(target: $target, $name,
+            $($field = $value,)* ok = tracing::field::Empty);
+        let _entered = span.enter();
+        let result = (|| $body)();
+        span.record("ok", result.is_ok());
+        result
+    }};
+}
+#[cfg(not(feature = "profiling"))]
+macro_rules! profiling_result {
+    ($target:literal, $name:literal, {$($field:ident = $value:expr),* $(,)?}, $body:block) => {
+        $body
+    };
+}
+
+#[cfg(feature = "profiling")]
+macro_rules! profiling_option {
+    ($target:literal, $name:literal, {$($field:ident = $value:expr),* $(,)?}, $body:block) => {{
+        let span = tracing::trace_span!(target: $target, $name,
+            $($field = $value,)* found = tracing::field::Empty);
+        let _entered = span.enter();
+        let result = (|| $body)();
+        span.record("found", result.is_some());
+        result
+    }};
+}
+#[cfg(not(feature = "profiling"))]
+macro_rules! profiling_option {
+    ($target:literal, $name:literal, {$($field:ident = $value:expr),* $(,)?}, $body:block) => {
+        $body
+    };
+}
+
+#[cfg(feature = "profiling")]
+macro_rules! profiling_frame {
+    (try, $frame:literal, $path:expr, $span:ident, $body:block) => {
+        crate::profiling::frame_try($frame, $path.len(), |$span| $body)
+    };
+    (strict, $frame:literal, $path:expr, $span:ident, $body:block) => {
+        crate::profiling::frame_get($frame, $path.len(), |$span| $body)
+    };
+}
+#[cfg(not(feature = "profiling"))]
+macro_rules! profiling_frame {
+    ($mode:ident, $frame:literal, $path:expr, $span:ident, $body:block) => {
+        $body
+    };
+}
+
+#[cfg(feature = "profiling")]
+macro_rules! profiling_lookup {
+    (try, $mode:literal, $path:expr, $operation:expr) => {
+        crate::profiling::lookup_try($mode, $path.len(), || $operation)
+    };
+    (strict, $path:expr, $operation:expr) => {
+        crate::profiling::lookup_get($path.len(), || $operation)
+    };
+}
+#[cfg(not(feature = "profiling"))]
+macro_rules! profiling_lookup {
+    (try, $mode:literal, $path:expr, $operation:expr) => {
+        $operation
+    };
+    (strict, $path:expr, $operation:expr) => {
+        $operation
+    };
+}
+
+#[cfg(feature = "profiling")]
+macro_rules! profiling_project {
+    ($operation:expr) => {
+        crate::profiling::project(|| $operation)
+    };
+}
+#[cfg(not(feature = "profiling"))]
+macro_rules! profiling_project {
+    ($operation:expr) => {
+        $operation
+    };
+}
+
+#[cfg(feature = "profiling")]
+macro_rules! profiling_template {
+    ($count:expr, $body:block) => {{
+        let span = tracing::debug_span!(target: "liquid::profile::template", "liquid.template",
+            node_count = $count, ok = tracing::field::Empty);
+        let _entered = span.enter();
+        let result = (|| $body)();
+        span.record("ok", result.is_ok());
+        result
+    }};
+}
+#[cfg(not(feature = "profiling"))]
+macro_rules! profiling_template {
+    ($count:expr, $body:block) => {
+        $body
+    };
+}

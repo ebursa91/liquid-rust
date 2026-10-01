@@ -87,7 +87,7 @@ impl<'s> ScalarCow<'s> {
     pub fn into_string(self) -> KString {
         match self.0 {
             ScalarCowEnum::Integer(x) => x.to_string().into(),
-            ScalarCowEnum::Float(x) => x.to_string().into(),
+            ScalarCowEnum::Float(x) => FloatDisplay(x).to_string().into(),
             ScalarCowEnum::Bool(x) => x.to_string().into(),
             ScalarCowEnum::DateTime(x) => x.to_string().into(),
             ScalarCowEnum::Date(x) => x.to_string().into(),
@@ -314,16 +314,50 @@ impl_copyable!(i16, i64);
 impl_copyable!(u32, i64);
 impl_copyable!(i32, i64);
 
+/// Ruby-style display for Liquid floating point values.
+struct FloatDisplay(f64);
+
+impl fmt::Display for FloatDisplay {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = self.0;
+        if value.is_nan() {
+            return f.write_str("NaN");
+        }
+        if value.is_infinite() {
+            return f.write_str(if value.is_sign_negative() {
+                "-Infinity"
+            } else {
+                "Infinity"
+            });
+        }
+        let magnitude = value.abs();
+        if magnitude != 0.0 && (magnitude < 1e-4 || (magnitude >= 1e15 && value.fract() == 0.0)) {
+            let scientific = format!("{value:e}");
+            if let Some((mantissa, exponent)) = scientific.split_once('e') {
+                if let Ok(exponent) = exponent.parse::<i32>() {
+                    let decimal = if mantissa.contains('.') { "" } else { ".0" };
+                    return write!(f, "{mantissa}{decimal}e{exponent:+03}");
+                }
+            }
+        }
+        write!(f, "{value}")?;
+        if value.fract() == 0.0 {
+            f.write_str(".0")?;
+        }
+        Ok(())
+    }
+}
+
 impl ValueView for f64 {
     fn as_debug(&self) -> &dyn fmt::Debug {
         self
     }
 
     fn render(&self) -> DisplayCow<'_> {
-        DisplayCow::Borrowed(self)
+        DisplayCow::Owned(Box::new(FloatDisplay(*self)))
     }
     fn source(&self) -> DisplayCow<'_> {
-        DisplayCow::Borrowed(self)
+        DisplayCow::Owned(Box::new(FloatDisplay(*self)))
     }
     fn type_name(&self) -> &'static str {
         "fractional number"
@@ -889,7 +923,7 @@ mod test {
     #[test]
     fn test_to_str_float() {
         let val: ScalarCow<'_> = 42f64.into();
-        assert_eq!(val.to_kstr(), "42");
+        assert_eq!(val.to_kstr(), "42.0");
 
         let val: ScalarCow<'_> = 42.34.into();
         assert_eq!(val.to_kstr(), "42.34");
@@ -1108,6 +1142,35 @@ mod test {
                 value.as_scalar().unwrap().into_cow_str()
             }
             assert_eq!(is_borrowed(extract_cow_str(&sc)), true);
+        }
+    }
+}
+
+#[cfg(test)]
+mod float_display_tests {
+    use super::*;
+    #[test]
+    fn floats_keep_ruby_decimal_and_exponent_forms_across_conversions() {
+        for (value, expected) in [
+            (0.0, "0.0"),
+            (-0.0, "-0.0"),
+            (1.0, "1.0"),
+            (25.0, "25.0"),
+            (1.25, "1.25"),
+            (0.0001, "0.0001"),
+            (1e-5, "1.0e-05"),
+            (1e15, "1.0e+15"),
+            (f64::from_bits(0x430c_6bf5_2634_0001), "1000000000000000.1"),
+            (f64::from_bits(0x4329_9823_9ddf_97ad), "3602076578859990.5"),
+            (1e20, "1.0e+20"),
+            (1.25e20, "1.25e+20"),
+            (f64::INFINITY, "Infinity"),
+            (f64::NEG_INFINITY, "-Infinity"),
+            (f64::NAN, "NaN"),
+        ] {
+            assert_eq!(Value::scalar(value).render().to_string(), expected);
+            assert_eq!(value.to_kstr().as_str(), expected);
+            assert_eq!(Scalar::new(value).into_string().as_str(), expected);
         }
     }
 }

@@ -77,6 +77,10 @@ impl Capture {
 }
 
 impl Renderable for Capture {
+    fn is_blank(&self) -> bool {
+        true
+    }
+
     fn render_to(&self, _writer: &mut dyn Write, runtime: &dyn Runtime) -> Result<()> {
         let mut captured = Vec::new();
         self.template
@@ -122,7 +126,7 @@ mod test {
         let output = template.render(&rt).unwrap();
         assert_eq!(
             rt.get(&[Scalar::new("attribute_name")]).unwrap(),
-            "potato-42-color"
+            "potato-42.0-color"
         );
         assert_eq!(output, "");
     }

@@ -15,6 +15,9 @@ pub mod parser;
 pub mod partials;
 pub mod runtime;
 
+#[cfg(feature = "profiling")]
+mod profiling;
+
 pub use error::{Error, Result};
 #[cfg(feature = "derive")]
 #[doc(hidden)]

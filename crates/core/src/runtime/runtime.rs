@@ -9,6 +9,32 @@ use super::Renderable;
 
 /// State for rendering a template
 pub trait Runtime {
+    /// Whether evaluating an expression rejects missing variable paths.
+    ///
+    /// Defaults to strict lookup. Returning `false` allows expressions to resolve
+    /// missing variables to nil without changing direct [`Runtime::get`] calls.
+    fn strict_variables(&self) -> bool {
+        true
+    }
+
+    /// Project an evaluated expression into a host-provided value view.
+    ///
+    /// The default preserves the original borrowed or owned value. Hosts can
+    /// supply custom views without changing stored values or variable lookup.
+    /// Standard stack frames delegate this hook to their parent runtime.
+    /// `scope` is the original active caller, including its local/sandboxed
+    /// bindings; `path` is the evaluated variable path, or `None` for literals
+    /// and optional expressions whose selectors could not be evaluated.
+    fn project_value<'a>(
+        &'a self,
+        value: ValueCow<'a>,
+        scope: &'a dyn Runtime,
+        path: Option<&[ScalarCow<'_>]>,
+    ) -> ValueCow<'a> {
+        let _ = (scope, path);
+        value
+    }
+
     /// Partial templates for inclusion.
     fn partials(&self) -> &dyn PartialStore;
 
@@ -39,6 +65,19 @@ pub trait Runtime {
 }
 
 impl<R: Runtime + ?Sized> Runtime for &R {
+    fn strict_variables(&self) -> bool {
+        <R as Runtime>::strict_variables(self)
+    }
+
+    fn project_value<'a>(
+        &'a self,
+        value: ValueCow<'a>,
+        scope: &'a dyn Runtime,
+        path: Option<&[ScalarCow<'_>]>,
+    ) -> ValueCow<'a> {
+        <R as Runtime>::project_value(self, value, scope, path)
+    }
+
     fn partials(&self) -> &dyn super::PartialStore {
         <R as Runtime>::partials(self)
     }
@@ -84,6 +123,7 @@ impl<R: Runtime + ?Sized> Runtime for &R {
 pub struct RuntimeBuilder<'g, 'p> {
     globals: Option<&'g dyn ObjectView>,
     partials: Option<&'p dyn PartialStore>,
+    strict_variables: bool,
 }
 
 impl<'c, 'g: 'c, 'p: 'c> RuntimeBuilder<'g, 'p> {
@@ -92,6 +132,7 @@ impl<'c, 'g: 'c, 'p: 'c> RuntimeBuilder<'g, 'p> {
         Self {
             globals: None,
             partials: None,
+            strict_variables: true,
         }
     }
 
@@ -100,6 +141,7 @@ impl<'c, 'g: 'c, 'p: 'c> RuntimeBuilder<'g, 'p> {
         RuntimeBuilder {
             globals: Some(values),
             partials: self.partials,
+            strict_variables: self.strict_variables,
         }
     }
 
@@ -108,7 +150,17 @@ impl<'c, 'g: 'c, 'p: 'c> RuntimeBuilder<'g, 'p> {
         RuntimeBuilder {
             globals: self.globals,
             partials: Some(values),
+            strict_variables: self.strict_variables,
         }
+    }
+
+    /// Set whether expression evaluation rejects missing variable paths.
+    ///
+    /// Strict lookup is enabled by default. Optional lookup resolves a missing
+    /// expression to nil; direct [`Runtime::get`] calls remain strict.
+    pub fn set_strict_variables(mut self, strict_variables: bool) -> Self {
+        self.strict_variables = strict_variables;
+        self
     }
 
     /// Create the `Runtime`.
@@ -116,6 +168,7 @@ impl<'c, 'g: 'c, 'p: 'c> RuntimeBuilder<'g, 'p> {
         let partials = self.partials.unwrap_or(&NullPartials);
         let runtime = RuntimeCore {
             partials,
+            strict_variables: self.strict_variables,
             ..Default::default()
         };
         let runtime = super::IndexFrame::new(runtime);
@@ -206,6 +259,7 @@ impl Default for RuntimeBuilder<'static, 'static> {
 /// Processing runtime for a template.
 pub struct RuntimeCore<'g> {
     partials: &'g dyn PartialStore,
+    strict_variables: bool,
 
     registers: Registers,
 }
@@ -225,6 +279,10 @@ impl RuntimeCore<'_> {
 }
 
 impl Runtime for RuntimeCore<'_> {
+    fn strict_variables(&self) -> bool {
+        self.strict_variables
+    }
+
     fn partials(&self) -> &dyn PartialStore {
         self.partials
     }
@@ -274,6 +332,7 @@ impl Default for RuntimeCore<'_> {
     fn default() -> Self {
         Self {
             partials: &NullPartials,
+            strict_variables: true,
             registers: Default::default(),
         }
     }
@@ -368,6 +427,32 @@ mod test {
     use crate::model::Scalar;
     use crate::model::Value;
     use crate::model::ValueViewCmp;
+
+    #[test]
+    fn optional_expressions_require_explicit_configuration() {
+        assert!(RuntimeCore::new().strict_variables());
+        assert!(RuntimeCore::default().strict_variables());
+        assert!(RuntimeBuilder::new().build().strict_variables());
+        assert!(RuntimeBuilder::default().build().strict_variables());
+
+        let globals = crate::object!({"present": 1});
+        let runtime = RuntimeBuilder::new()
+            .set_strict_variables(false)
+            .set_globals(&globals)
+            .set_partials(&NullPartials)
+            .build();
+        assert!(!runtime.strict_variables());
+        let reference: &dyn Runtime = &runtime;
+        assert!(!<&dyn Runtime as Runtime>::strict_variables(&reference));
+        // Optional expression evaluation does not relax explicit host lookups.
+        assert!(runtime.get(&[Scalar::new("missing")]).is_err());
+        assert!(runtime.try_get(&[Scalar::new("missing")]).is_none());
+        assert!(RuntimeBuilder::new()
+            .set_strict_variables(false)
+            .set_strict_variables(true)
+            .build()
+            .strict_variables());
+    }
 
     #[test]
     fn mask_variables() {

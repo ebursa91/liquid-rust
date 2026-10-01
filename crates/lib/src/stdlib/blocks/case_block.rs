@@ -54,6 +54,7 @@ impl ParseBlock for CaseBlock {
         let mut else_block = None;
         let mut current_block = Vec::new();
         let mut current_condition = None;
+        let mut initial_blank = true;
 
         while let Some(element) = tokens.next()? {
             match element {
@@ -61,11 +62,16 @@ impl ParseBlock for CaseBlock {
                     "when" => {
                         if let Some(condition) = current_condition {
                             cases.push(CaseOption::new(condition, Template::new(current_block)));
+                        } else {
+                            initial_blank = current_block.iter().all(|node| node.is_blank());
                         }
                         current_block = Vec::new();
                         current_condition = Some(parse_condition(tag.tokens())?);
                     }
                     "else" => {
+                        if current_condition.is_none() {
+                            initial_blank = current_block.iter().all(|node| node.is_blank());
+                        }
                         // no more arguments should be supplied, trying to supply them is an error
                         tag.tokens().expect_nothing()?;
                         else_block = Some(tokens.parse_all(options)?);
@@ -79,16 +85,21 @@ impl ParseBlock for CaseBlock {
 
         if let Some(condition) = current_condition {
             cases.push(CaseOption::new(condition, Template::new(current_block)));
+        } else if cases.is_empty() && else_block.is_none() {
+            initial_blank = current_block.iter().all(|node| node.is_blank());
         }
 
         let else_block = else_block.map(Template::new);
 
         tokens.assert_empty();
-        Ok(Box::new(Case {
+        let mut parsed = Case {
             target,
             cases,
             else_block,
-        }))
+            initial_blank,
+        };
+        parsed.trim_blank();
+        Ok(Box::new(parsed))
     }
 
     fn reflection(&self) -> &dyn BlockReflection {
@@ -129,6 +140,7 @@ struct Case {
     target: Expression,
     cases: Vec<CaseOption>,
     else_block: Option<Template>,
+    initial_blank: bool,
 }
 
 impl Case {
@@ -138,6 +150,23 @@ impl Case {
 }
 
 impl Renderable for Case {
+    fn is_blank(&self) -> bool {
+        self.initial_blank
+            && self.cases.iter().all(|case| case.template.is_blank())
+            && self.else_block.as_ref().is_none_or(|body| body.is_blank())
+    }
+
+    fn trim_blank(&mut self) {
+        if self.is_blank() {
+            for case in &mut self.cases {
+                case.template.trim_blank();
+            }
+            if let Some(body) = &mut self.else_block {
+                body.trim_blank();
+            }
+        }
+    }
+
     fn render_to(&self, writer: &mut dyn Write, runtime: &dyn Runtime) -> Result<()> {
         let value = self.target.evaluate(runtime)?.to_value();
         for case in &self.cases {

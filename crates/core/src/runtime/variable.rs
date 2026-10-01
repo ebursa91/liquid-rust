@@ -32,38 +32,87 @@ impl Variable {
 
     /// Convert to a `Path`.
     pub fn try_evaluate<'c>(&'c self, runtime: &'c dyn Runtime) -> Option<Path<'c>> {
-        let mut path = Path::with_index(self.variable.as_ref());
-        path.reserve(self.indexes.len());
-        for expr in &self.indexes {
-            let v = expr.try_evaluate(runtime)?;
-            let s = match v {
-                ValueCow::Owned(v) => v.into_scalar(),
-                ValueCow::Borrowed(v) => v.as_scalar(),
-            }?;
-            path.push(s);
-        }
-        Some(path)
+        profiling_option!(
+            "liquid::profile::lookup",
+            "liquid.selector",
+            {mode = "try", selectors = self.indexes.len()},
+            {
+                let mut path = Path::with_index(self.variable.as_ref());
+                path.reserve(self.indexes.len());
+                for expr in &self.indexes {
+                    let v = expr.try_evaluate(runtime)?;
+                    let s = match v {
+                        ValueCow::Owned(v) => v.into_scalar(),
+                        ValueCow::Borrowed(v) => v.as_scalar(),
+                    }?;
+                    path.push(s);
+                }
+                Some(path)
+            }
+        )
     }
 
     /// Convert to a `Path`.
     pub fn evaluate<'c>(&'c self, runtime: &'c dyn Runtime) -> Result<Path<'c>> {
-        let mut path = Path::with_index(self.variable.as_ref());
-        path.reserve(self.indexes.len());
-        for expr in &self.indexes {
-            let v = expr.evaluate(runtime)?;
-            let s = match v {
-                ValueCow::Owned(v) => v.into_scalar(),
-                ValueCow::Borrowed(v) => v.as_scalar(),
+        profiling_result!(
+            "liquid::profile::lookup",
+            "liquid.selector",
+            {mode = "strict", selectors = self.indexes.len()},
+            {
+                let mut path = Path::with_index(self.variable.as_ref());
+                path.reserve(self.indexes.len());
+                for expr in &self.indexes {
+                    let v = expr.evaluate(runtime)?;
+                    let s = match v {
+                        ValueCow::Owned(v) => v.into_scalar(),
+                        ValueCow::Borrowed(v) => v.as_scalar(),
+                    }
+                    .ok_or_else(|| {
+                        let v = expr.evaluate(runtime).expect("lookup already verified");
+                        let v = v.source();
+                        let msg = format!("Expected scalar, found `{}`", v);
+                        Error::with_msg(msg)
+                    })?;
+                    path.push(s);
+                }
+                Ok(path)
             }
-            .ok_or_else(|| {
-                let v = expr.evaluate(runtime).expect("lookup already verified");
-                let v = v.source();
-                let msg = format!("Expected scalar, found `{}`", v);
-                Error::with_msg(msg)
-            })?;
-            path.push(s);
-        }
-        Ok(path)
+        )
+    }
+
+    /// Resolve a path whose missing dynamic selector makes the lookup optional.
+    ///
+    /// Evaluation errors are preserved. A nil or non-scalar index cannot select
+    /// a value in the Liquid value model, so it resolves to no path instead of a
+    /// scalar error. Strict lookup continues to use [`Variable::evaluate`].
+    pub(crate) fn evaluate_optional<'c>(
+        &'c self,
+        runtime: &'c dyn Runtime,
+    ) -> Result<Option<Path<'c>>> {
+        profiling_result!(
+            "liquid::profile::lookup",
+            "liquid.selector",
+            {mode = "optional", selectors = self.indexes.len()},
+            {
+                let mut path = Path::with_index(self.variable.as_ref());
+                path.reserve(self.indexes.len());
+                for expr in &self.indexes {
+                    let value = expr.evaluate(runtime)?;
+                    if value.is_nil() {
+                        return Ok(None);
+                    }
+                    let scalar = match value {
+                        ValueCow::Owned(value) => value.into_scalar(),
+                        ValueCow::Borrowed(value) => value.as_scalar(),
+                    };
+                    let Some(scalar) = scalar else {
+                        return Ok(None);
+                    };
+                    path.push(scalar);
+                }
+                Ok(Some(path))
+            }
+        )
     }
 }
 
