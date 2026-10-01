@@ -18,8 +18,10 @@ checkout at that SHA when rendering; the fixture does not fetch anything.
   it as a Liquid object.
 - `globals` supplies Liquid values. `all_products` and `collections` are keyed by
   handle, `linklists` by menu handle, and `pages` by page handle.
-- `theme.settings` supplies global setting overrides. Merge schema defaults,
-  pinned `config/settings_data.json.current`, then these overrides.
+- `theme.settings` supplies saved global settings. The original offline baseline
+  merges schema defaults, pinned `config/settings_data.json.current`, then these
+  overrides. New gRPC contexts declare `theme.configuration_source=service` and
+  provide the complete saved profile; the host skips local saved configuration.
 - `theme.section_overrides[id].settings` and
   `theme.block_overrides[id].settings` override the real index template's settings
   after their relevant schema defaults and template settings. Retain the real

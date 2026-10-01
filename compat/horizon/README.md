@@ -133,3 +133,5 @@ inside each worker, verifies every warm result against independent output bytes,
 and records cold CLI timings separately from warm prepared rendering.
 
 The [seven-batch performance comparison](RESULTS.md) covers release Rust and Ruby 4.0.7 in plain, YJIT and Fiber/YJIT modes, with every output checked. Warm medians in that shared-host run were 65.66, 55.42, 23.75 and 24.37 ms respectively; see the complete distributions and limitations before interpreting them. The standalone original Ruby renderer is public at [ebursa91/horizon-ruby-renderer](https://github.com/ebursa91/horizon-ruby-renderer). The [rendering and performance goal](ROADMAP.md) records the next coverage and measurement steps.
+
+Shared authoritative store/configuration data is available through the native gRPC clients; see [DATA_SERVICE.md](DATA_SERVICE.md). Explicit local fixtures remain offline oracle inputs.

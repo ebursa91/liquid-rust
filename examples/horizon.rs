@@ -168,8 +168,11 @@ struct Context {
     locales: Json,
     sources: Sources,
     fixture: Json,
+    page: String,
+    locale: String,
     globals: Object,
     styles: Mutex<Vec<(String, String)>>,
+    scripts: Mutex<BTreeSet<String>>,
     calls: Mutex<BTreeMap<String, usize>>,
     rendered_sources: Mutex<Vec<String>>,
     palette: Vec<FixtureColor>,
@@ -181,6 +184,7 @@ impl Context {
     // Keep only immutable source/configuration caches between requests.
     fn reset_request(&self) -> Result<()> {
         self.styles.lock().map_err(failure)?.clear();
+        self.scripts.lock().map_err(failure)?.clear();
         self.calls.lock().map_err(failure)?.clear();
         self.rendered_sources.lock().map_err(failure)?.clear();
         Ok(())
@@ -321,10 +325,21 @@ impl Context {
                     &schema,
                     &globals_view(&self.globals, &globals),
                 )?;
-                let closest = settings
-                    .get("collection")
-                    .map(|collection| liquid_core::object!({"collection":collection.clone()}))
+                let mut closest = self
+                    .globals
+                    .get("closest")
+                    .and_then(ValueView::as_object)
+                    .map(|closest| {
+                        closest
+                            .iter()
+                            .map(|(key, value)| (key.into_owned(), value.to_value()))
+                            .collect::<Object>()
+                    })
                     .unwrap_or_default();
+                if let Some(collection) = settings.get("collection").filter(|value| !value.is_nil())
+                {
+                    closest.insert("collection".into(), collection.clone());
+                }
                 globals.insert("closest".into(), Value::Object(closest));
             }
         }
@@ -427,6 +442,10 @@ impl Context {
         merge(
             &mut settings,
             &self.fixture["theme"][overrides][id]["settings"],
+        );
+        merge(
+            &mut settings,
+            &self.fixture["theme"]["page_overrides"][&self.page][overrides][id]["settings"],
         );
         let mut blocks = Vec::new();
         let mut order = input["block_order"].as_array().cloned().unwrap_or_else(|| {
@@ -669,6 +688,15 @@ impl Runtime for FixtureRuntime<'_> {
         self.inner.roots()
     }
     fn try_get(&self, path: &[ScalarCow<'_>]) -> Option<ValueCow<'_>> {
+        if let Some((property, prefix)) = path.split_last() {
+            if property.to_kstr() == "size" {
+                if let Some(name) = self.inner.try_get(prefix).and_then(|value| {
+                    option_value_name(value.as_view()).map(|name| name.into_owned())
+                }) {
+                    return Some(ValueCow::Owned(Value::scalar(name.chars().count() as i64)));
+                }
+            }
+        }
         if path.len() == 2
             && path[0].to_kstr() == "settings"
             && path[1].to_kstr() == "color_palette"
@@ -766,11 +794,17 @@ impl ParseTag for PlatformTag {
             .into_result()?;
         let mut keywords = Vec::new();
         while let Some(token) = arguments.next() {
-            token.expect_str(",").into_result()?;
-            let key = arguments
-                .expect_next("Expected keyword")?
-                .as_str()
-                .to_owned();
+            let key = if token.as_str() == "," {
+                let Some(key) = arguments.next() else {
+                    break;
+                };
+                key
+            } else if keywords.is_empty() {
+                token
+            } else {
+                return Err(failure("Expected comma between platform tag keywords"));
+            };
+            let key = key.as_str().to_owned();
             arguments
                 .expect_next("Expected colon")?
                 .expect_str(":")
@@ -1077,6 +1111,20 @@ impl Renderable for BlockNode {
                 }
                 Ok(())
             }
+            "javascript" => {
+                let name = runtime
+                    .name()
+                    .map(|name| name.to_string())
+                    .unwrap_or_default();
+                if self.context.scripts.lock().map_err(failure)?.insert(name) {
+                    writer
+                        .write_all(b"<script data-shopify>")
+                        .map_err(failure)?;
+                    writer.write_all(self.raw.as_bytes()).map_err(failure)?;
+                    writer.write_all(b"</script>").map_err(failure)?;
+                }
+                Ok(())
+            }
             "style" => {
                 writer.write_all(b"<style data-shopify>").map_err(failure)?;
                 if let Some(body) = &self.body {
@@ -1142,9 +1190,7 @@ impl Renderable for BlockNode {
                     .and_then(|value| value.to_integer())
                     .ok_or_else(|| failure("paginate requires integer size"))?;
                 if size <= 0 {
-                    return Err(failure(
-                        "Fixture pagination supports positive first-page size only",
-                    ));
+                    return Err(failure("Fixture pagination requires positive page size"));
                 }
                 let items = collection
                     .as_array()
@@ -1157,7 +1203,56 @@ impl Renderable for BlockNode {
                         ))
                     })?;
                 let pages = (items / size + i64::from(items % size != 0)).max(1);
-                let globals = liquid_core::object!({"paginate":{"current_page":1,"pages":pages,"items":items,"page_size":size,"current_offset":0}});
+                let current = runtime.get(&["current_page".into()])?;
+                let current_page = if current.is_nil() {
+                    1
+                } else {
+                    current
+                        .as_scalar()
+                        .and_then(|value| value.to_integer())
+                        .ok_or_else(|| failure("Fixture current_page requires integer"))?
+                };
+                if !(1..=pages).contains(&current_page) {
+                    return Err(failure(
+                        "Fixture current_page is outside the paginated collection",
+                    ));
+                }
+                let offset = (current_page - 1)
+                    .checked_mul(size)
+                    .ok_or_else(|| failure("Pagination offset overflow"))?;
+                let path = match &self.parameters[0] {
+                    Expression::Variable(variable) => variable.evaluate(runtime)?,
+                    Expression::Literal(_) => {
+                        return Err(failure("Fixture pagination requires a variable path"))
+                    }
+                };
+                let window = Value::Array(
+                    collection
+                        .as_array()
+                        .ok_or_else(|| failure("Paginated value requires array"))?
+                        .values()
+                        .skip(usize::try_from(offset).map_err(failure)?)
+                        .take(usize::try_from(size).map_err(failure)?)
+                        .map(ValueView::to_value)
+                        .collect(),
+                );
+                let mut globals = Object::new();
+                let (name, properties) = path
+                    .as_slice()
+                    .split_first()
+                    .ok_or_else(|| failure("Missing pagination path"))?;
+                let root = runtime.get(std::slice::from_ref(name))?;
+                globals.insert(
+                    name.to_kstr().into_owned(),
+                    pagination_window(root.as_view(), properties, window)?,
+                );
+                let request_path = runtime
+                    .get(&["request".into(), "path".into()])?
+                    .to_kstr()
+                    .into_owned();
+                let page_url = |page: i64| format!("{request_path}?page={page}");
+                let parts = (1..=pages).map(|page| json!({"title":page.to_string(),"is_link":page != current_page,"url":if page == current_page { Json::Null } else { json!(page_url(page)) }})).collect::<Vec<_>>();
+                globals.insert("paginate".into(), liquid_core::model::to_value(&json!({"current_page":current_page,"pages":pages,"items":items,"page_size":size,"current_offset":offset,"previous":if current_page > 1 { json!({"title":"Previous","url":page_url(current_page - 1)}) } else { Json::Null },"next":if current_page < pages { json!({"title":"Next","url":page_url(current_page + 1)}) } else { Json::Null },"parts":parts}))?);
                 let frame = StackFrame::new(runtime, &globals);
                 let name = runtime.name();
                 let frame = FixtureRuntime {
@@ -1431,6 +1526,135 @@ impl Color {
     }
 }
 
+fn pagination_window(root: &dyn ValueView, path: &[ScalarCow<'_>], window: Value) -> Result<Value> {
+    let Some((property, rest)) = path.split_first() else {
+        return Ok(window);
+    };
+    if property.type_name() != "string" {
+        return Err(failure(
+            "Fixture pagination supports object property paths only",
+        ));
+    }
+    let object = root
+        .as_object()
+        .ok_or_else(|| failure("Paginated parent requires object"))?;
+    let key = property.to_kstr();
+    let child = object
+        .get(key.as_str())
+        .ok_or_else(|| failure("Missing pagination parent property"))?;
+    let child = pagination_window(child, rest, window)?;
+    let mut result = object
+        .iter()
+        .map(|(key, value)| (key.into_owned(), value.to_value()))
+        .collect::<Object>();
+    result.insert(key.into_owned(), child);
+    Ok(Value::Object(result))
+}
+
+fn option_value_name(input: &dyn ValueView) -> Option<KStringCow<'_>> {
+    let option = input.as_object()?;
+    if [
+        "id",
+        "name",
+        "available",
+        "selected",
+        "variant",
+        "product_url",
+    ]
+    .iter()
+    .all(|key| option.contains_key(key))
+    {
+        return option
+            .get("name")?
+            .as_scalar()
+            .map(|value| value.to_kstr().into_owned().into());
+    }
+    None
+}
+
+fn product_structured_data(input: &dyn ValueView, runtime: &dyn Runtime) -> Result<Value> {
+    let product = input
+        .as_object()
+        .ok_or_else(|| failure("structured_data requires fixture product"))?;
+    let field = |name: &str| {
+        product
+            .get(name)
+            .ok_or_else(|| failure(format!("Structured product requires {name}")))
+    };
+    let quote = |text: &str| serde_json::to_string(text).map_err(failure);
+    let canonical = runtime
+        .get(&[ScalarCow::from("canonical_url")])?
+        .to_kstr()
+        .into_owned();
+    let origin = canonical.split('/').take(3).collect::<Vec<_>>().join("/");
+    if !canonical.starts_with("https://") || origin == "https://" {
+        return Err(failure(
+            "Structured product requires absolute fixture HTTPS canonical_url",
+        ));
+    }
+    let title = field("title")?.to_kstr();
+    let description = field("description")?.to_kstr();
+    let description = regex::Regex::new(r"<[^>]*>")
+        .map_err(failure)?
+        .replace_all(&description, "");
+    let images = field("images")?
+        .as_array()
+        .ok_or_else(|| failure("Structured product requires fixture images"))?;
+    let images = images
+        .values()
+        .map(|image| {
+            let source = image
+                .as_object()
+                .and_then(|image| image.get("src"))
+                .ok_or_else(|| failure("Structured product image requires src"))?
+                .to_kstr();
+            if !source.starts_with('/') {
+                return Err(failure("Structured image requires local URL"));
+            }
+            quote(&format!("{origin}{source}"))
+        })
+        .collect::<Result<Vec<_>>>()?
+        .join(",");
+    let variants = field("variants")?
+        .as_array()
+        .ok_or_else(|| failure("Structured product requires variants"))?;
+    let mut variant_json = Vec::new();
+    for variant in variants.values() {
+        let variant = variant
+            .as_object()
+            .ok_or_else(|| failure("Structured variant requires object"))?;
+        let field = |name: &str| {
+            variant
+                .get(name)
+                .ok_or_else(|| failure(format!("Structured variant requires {name}")))
+        };
+        let cents = field("price")?
+            .as_scalar()
+            .and_then(|value| value.to_integer())
+            .ok_or_else(|| failure("Structured price requires integer USD cents"))?;
+        if cents < 0 {
+            return Err(failure("Structured price must be nonnegative"));
+        }
+        let path = field("url")?.to_kstr();
+        if !path.starts_with('/') {
+            return Err(failure("Structured variant requires local URL"));
+        }
+        let availability = if field("available")?
+            .as_scalar()
+            .and_then(|value| value.to_bool())
+            .ok_or_else(|| failure("Structured availability requires boolean"))?
+        {
+            "InStock"
+        } else {
+            "OutOfStock"
+        };
+        variant_json.push(format!("{{\"@type\":\"Product\",\"name\":{},\"sku\":{},\"url\":{},\"offers\":{{\"@type\":\"Offer\",\"priceCurrency\":\"USD\",\"price\":{},\"availability\":{}}}}}",
+            quote(&format!("{title} - {}", field("title")?.to_kstr()))?, quote(&field("sku")?.to_kstr())?, quote(&format!("{origin}{path}"))?, quote(&format!("{}.{:02}", cents / 100, cents % 100))?, quote(&format!("https://schema.org/{availability}"))?));
+    }
+    Ok(Value::scalar(format!("{{\"@context\":\"https://schema.org\",\"@type\":\"ProductGroup\",\"@id\":{},\"name\":{},\"description\":{},\"url\":{},\"image\":[{}],\"brand\":{{\"@type\":\"Brand\",\"name\":{}}},\"productGroupID\":{},\"hasVariant\":[{}]}}",
+        quote(&format!("{canonical}#product"))?, quote(&title)?, quote(&description)?, quote(&canonical)?, images, quote(&field("vendor")?.to_kstr())?, quote(&field("id")?.to_kstr())?, variant_json.join(","))))
+}
+
 impl fmt::Display for FilterNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.name)
@@ -1488,6 +1712,25 @@ impl Filter for FilterNode {
             )));
         }
         match self.name.as_str() {
+            "escape" => {
+                // Shopify option values are Drops with a name string projection.
+                // Preserve ordinary stdlib escaping for all other values.
+                let text = option_value_name(input).unwrap_or_else(|| input.to_kstr());
+                Ok(Value::scalar(html_escape(&text)))
+            }
+            "structured_data" => {
+                if self.context.fixture["manifest"]["mock_contract"]["structured_data"]
+                    != "synthetic Schema.org ProductGroup"
+                {
+                    return Err(failure(
+                        "structured_data requires the declared synthetic product contract",
+                    ));
+                }
+                if self.context.fixture["globals"]["shop"]["currency"] != "USD" {
+                    return Err(failure("Fixture structured_data supports USD only"));
+                }
+                product_structured_data(input, runtime)
+            }
             "placeholder_svg_tag" => {
                 if input.to_kstr() != "hero-apparel-1" {
                     return Err(failure("Unsupported fixture placeholder"));
@@ -1524,13 +1767,26 @@ impl Filter for FilterNode {
                         .ok_or_else(|| failure(format!("Missing fixture translation: {key}")))?;
                 }
                 if let Some(count) = keyword.get("count").filter(|_| text.is_object()) {
-                    text = &text[if count.as_scalar().and_then(|value| value.to_integer())
-                        == Some(1)
-                    {
-                        "one"
-                    } else {
-                        "other"
-                    }];
+                    let count = count.as_scalar().and_then(|value| value.to_integer());
+                    let category = match count {
+                        Some(1) => "one",
+                        Some(count) if self.context.locale == "pl" => {
+                            let count = count.unsigned_abs();
+                            if (2..=4).contains(&(count % 10))
+                                && !(12..=14).contains(&(count % 100))
+                            {
+                                "few"
+                            } else {
+                                "many"
+                            }
+                        }
+                        _ => "other",
+                    };
+                    text = text.get(category).ok_or_else(|| {
+                        failure(format!(
+                            "Missing fixture plural translation: {key}.{category}"
+                        ))
+                    })?;
                 }
                 let text = text
                     .as_str()
@@ -1609,7 +1865,21 @@ impl Filter for FilterNode {
                 }
                 Ok(Value::scalar(format!("<img {attributes}>")))
             }
-            "money" | "money_with_currency" => {
+            "handleize" => {
+                let text = input.to_kstr();
+                if !text
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b" _-".contains(&byte))
+                {
+                    return Err(failure("Fixture handleize supports ASCII identifiers only"));
+                }
+                let text = text.to_ascii_lowercase().replace('_', "-");
+                let text = regex::Regex::new(r"[ -]+")
+                    .map_err(failure)?
+                    .replace_all(&text, "-");
+                Ok(Value::scalar(text.trim_matches('-').to_owned()))
+            }
+            "money" | "money_with_currency" | "money_without_currency" => {
                 if self.context.fixture["globals"]["shop"]["currency"] != "USD" {
                     return Err(failure("Fixture money supports USD only"));
                 }
@@ -1636,8 +1906,13 @@ impl Filter for FilterNode {
                 } else {
                     ""
                 };
+                let symbol = if self.name == "money_without_currency" {
+                    ""
+                } else {
+                    "$"
+                };
                 Ok(Value::scalar(format!(
-                    "{sign}${grouped}.{:02}{currency}",
+                    "{sign}{symbol}{grouped}.{:02}{currency}",
                     absolute % 100
                 )))
             }
@@ -1668,7 +1943,16 @@ impl Filter for FilterNode {
                 let serialize = |value: &dyn ValueView| {
                     serde_json::to_string(&value.to_value()).map_err(failure)
                 };
-                let payload = if let Some(id) = resource.get("id") {
+                let payload = if resource.contains_key("products") && resource.contains_key("id") {
+                    let id = resource
+                        .get("id")
+                        .ok_or_else(|| failure("Collection requires id"))?;
+                    format!(
+                        "{{\"event\":\"view\",\"collection_id\":{},\"context\":{}}}",
+                        serialize(id)?,
+                        serialize(&context)?
+                    )
+                } else if let Some(id) = resource.get("id") {
                     format!(
                         "{{\"event\":\"view\",\"product_id\":{},\"context\":{}}}",
                         serialize(id)?,
@@ -1687,9 +1971,18 @@ impl Filter for FilterNode {
                 };
                 Ok(Value::scalar(payload))
             }
-            "json" => Ok(Value::scalar(
-                serde_json::to_string(&input.to_value()).map_err(failure)?,
-            )),
+            "json" => {
+                let text = if self.context.fixture["manifest"]["mock_contract"]["json_object_order"]
+                    == "sorted"
+                {
+                    // serde_json maps sort keys recursively for the declared mock protocol.
+                    let value = serde_json::to_value(input.to_value()).map_err(failure)?;
+                    serde_json::to_string(&value).map_err(failure)?
+                } else {
+                    serde_json::to_string(&input.to_value()).map_err(failure)?
+                };
+                Ok(Value::scalar(text))
+            }
             "preload_tag" => {
                 let mut output = format!(
                     "<link rel=\"preload\" href=\"{}\"",
@@ -1790,12 +2083,28 @@ impl Filter for FilterNode {
                 let form = input
                     .as_object()
                     .ok_or_else(|| failure("payment_terms requires form"))?;
-                if form.get("type").map(|value| value.to_kstr()) != Some("cart".into())
+                if !form
+                    .get("type")
+                    .is_some_and(|value| ["cart", "product"].contains(&value.to_kstr().as_str()))
                     || self.context.fixture["manifest"]["platform_capabilities"]["payment_terms"]
                         != false
                 {
                     return Err(failure(
-                        "payment_terms requires explicitly disabled cart financing",
+                        "payment_terms requires explicitly disabled product/cart financing",
+                    ));
+                }
+                Ok(Value::scalar(""))
+            }
+            "payment_button" => {
+                let form = input
+                    .as_object()
+                    .ok_or_else(|| failure("payment_button requires form"))?;
+                if form.get("type").map(|value| value.to_kstr()) != Some("product".into())
+                    || self.context.fixture["manifest"]["platform_capabilities"]["payment_button"]
+                        != false
+                {
+                    return Err(failure(
+                        "payment_button requires explicitly disabled product accelerated checkout",
                     ));
                 }
                 Ok(Value::scalar(""))
@@ -1945,7 +2254,7 @@ fn language(context: Arc<Context>) -> Result<Arc<Language>> {
     }
     for name in names
         .iter()
-        .filter(|name| !known.contains(*name) || name.as_str() == "date")
+        .filter(|name| !known.contains(*name) || ["date", "escape"].contains(&name.as_str()))
     {
         builder = builder.filter(PlatformFilter {
             name: name.clone(),
@@ -1962,6 +2271,7 @@ fn language(context: Arc<Context>) -> Result<Arc<Language>> {
         ("schema", "endschema"),
         ("doc", "enddoc"),
         ("stylesheet", "endstylesheet"),
+        ("javascript", "endjavascript"),
         ("style", "endstyle"),
         ("paginate", "endpaginate"),
         ("form", "endform"),
@@ -2002,6 +2312,204 @@ impl RenderOutput {
     }
 }
 
+fn select_product_variant(product: &mut Json, variant_id: Option<&Json>) -> Result<()> {
+    let original = product["variants"]
+        .as_array()
+        .ok_or_else(|| failure("Canonical product requires variants"))?;
+    let mut variants = original.clone();
+    let selected_index = variant_id
+        .map(|id| {
+            variants
+                .iter()
+                .position(|variant| variant["id"] == *id)
+                .ok_or_else(|| failure("Selected variant is missing from canonical product"))
+        })
+        .transpose()?;
+    for (index, variant) in variants.iter_mut().enumerate() {
+        variant["selected"] = json!(Some(index) == selected_index);
+    }
+    let selected = selected_index
+        .map(|index| variants[index].clone())
+        .unwrap_or(Json::Null);
+    let chosen = selected_index
+        .map(|index| variants[index].clone())
+        .or_else(|| {
+            product
+                .get("first_available_variant")
+                .filter(|value| value.is_object())
+                .cloned()
+        })
+        .or_else(|| variants.first().cloned())
+        .ok_or_else(|| failure("Product requires at least one variant"))?;
+    let selected_options = chosen["options"].as_array().cloned().unwrap_or_default();
+    let root = product
+        .as_object_mut()
+        .ok_or_else(|| failure("Expected product object"))?;
+    root.insert("selected_variant".to_owned(), selected);
+    root.insert("selected_or_first_available_variant".to_owned(), chosen);
+    if let Some(options) = root
+        .get_mut("options_with_values")
+        .and_then(Json::as_array_mut)
+    {
+        for (ordinal, option) in options.iter_mut().enumerate() {
+            let index = option["position"]
+                .as_u64()
+                .and_then(|position| position.checked_sub(1))
+                .and_then(|position| usize::try_from(position).ok())
+                .unwrap_or(ordinal);
+            let Some(chosen) = selected_options.get(index) else {
+                continue;
+            };
+            option["selected_value"] = chosen.clone();
+            if let Some(values) = option["values"].as_array_mut() {
+                for value in values {
+                    value["selected"] = json!(value["name"] == *chosen);
+                    let matching = variants
+                        .iter()
+                        .filter(|variant| {
+                            variant["options"]
+                                .as_array()
+                                .and_then(|options| options.get(index))
+                                == Some(&value["name"])
+                        })
+                        .collect::<Vec<_>>();
+                    let same_other = matching.iter().find(|variant| {
+                        variant["options"].as_array().is_some_and(|options| {
+                            options.len() == selected_options.len()
+                                && options.iter().enumerate().all(|(slot, name)| {
+                                    slot == index || *name == selected_options[slot]
+                                })
+                        })
+                    });
+                    value["variant"] = same_other
+                        .or_else(|| matching.iter().find(|variant| variant["available"] == true))
+                        .or_else(|| matching.first())
+                        .map(|variant| (**variant).clone())
+                        .unwrap_or(Json::Null);
+                }
+            }
+        }
+        let named = options
+            .iter()
+            .filter_map(|option| {
+                option["name"]
+                    .as_str()
+                    .map(|name| (name.to_lowercase(), option.clone()))
+            })
+            .collect::<serde_json::Map<_, _>>();
+        root.insert("options_by_name".to_owned(), Json::Object(named));
+    }
+    root.insert("variants".to_owned(), json!(variants));
+    Ok(())
+}
+
+// Page resources come from the same canonical fixture registries as picker settings.
+// These are bounded platform projections; they do not alter the Liquid source.
+fn page_globals(fixture: &Json, page: &str, diagnostic_only: bool) -> Result<(Object, String)> {
+    let page_data = &fixture["pages"][page];
+    if !page_data.is_object() && !diagnostic_only {
+        return Err(failure("Missing page metadata"));
+    }
+    let mut globals = fixture["globals"].clone();
+    let root = globals
+        .as_object_mut()
+        .ok_or_else(|| failure("Fixture globals must be an object"))?;
+    for (target, source) in [("page_title", "title"), ("page_description", "description")] {
+        root.insert(target.to_owned(), page_data[source].clone());
+    }
+    if let Some(current_page) = page_data.get("current_page") {
+        if current_page.as_u64().filter(|page| *page > 0).is_none() {
+            return Err(failure("Page current_page must be a positive integer"));
+        }
+        root.insert("current_page".to_owned(), current_page.clone());
+    }
+    root.entry("current_page").or_insert(json!(1));
+    root.entry("current_tags").or_insert(json!([]));
+    if let Some(request_id) = page_data.get("request_id") {
+        let request = root
+            .get_mut("request")
+            .and_then(Json::as_object_mut)
+            .ok_or_else(|| failure("Page request identity requires request object"))?;
+        request.insert(
+            "id".to_owned(),
+            json!(request_id
+                .as_str()
+                .map(str::to_owned)
+                .unwrap_or_else(|| request_id.to_string())),
+        );
+    }
+    let kind = page_data["type"].as_str().unwrap_or(page);
+    root.insert(
+        "template".to_owned(),
+        json!({"name":kind,"type":kind,"suffix":null}),
+    );
+    if let Some(canonical) = page_data["canonical_url"].as_str() {
+        root.insert("canonical_url".to_owned(), json!(canonical));
+    }
+    if let Some(resource) = page_data.get("resource") {
+        let resource_kind = resource["type"]
+            .as_str()
+            .ok_or_else(|| failure("Page resource requires type"))?;
+        if resource_kind != kind || !["product", "collection"].contains(&kind) {
+            return Err(failure("Unsupported or mismatched page resource type"));
+        }
+        let handle = resource["handle"]
+            .as_str()
+            .ok_or_else(|| failure("Page resource requires handle"))?;
+        let registry = if kind == "product" {
+            "all_products"
+        } else {
+            "collections"
+        };
+        let mut value = fixture["globals"][registry]
+            .get(handle)
+            .filter(|value| value.is_object())
+            .cloned()
+            .ok_or_else(|| failure("Page resource is missing from canonical registry"))?;
+        let variant_id = resource.get("variant_id");
+        if variant_id.is_some_and(|id| kind != "product" || !id.is_u64()) {
+            return Err(failure("Product variant_id must be a nonnegative integer"));
+        }
+        if kind == "product" {
+            select_product_variant(&mut value, variant_id)?;
+        }
+        if let Some(registry) = root.get_mut(registry).and_then(Json::as_object_mut) {
+            registry.insert(handle.to_owned(), value.clone());
+        }
+        root.insert(kind.to_owned(), value.clone());
+        let mut closest = root
+            .get("closest")
+            .and_then(Json::as_object)
+            .cloned()
+            .unwrap_or_default();
+        closest.insert(kind.to_owned(), value);
+        root.insert("closest".to_owned(), Json::Object(closest));
+        let request = root
+            .get_mut("request")
+            .and_then(Json::as_object_mut)
+            .ok_or_else(|| failure("Resource page requires request object"))?;
+        request.insert("page_type".to_owned(), json!(kind));
+        request.insert("path".to_owned(), page_data["url"].clone());
+    }
+    let locale = root
+        .get("request")
+        .and_then(|request| request["locale"]["iso_code"].as_str())
+        .unwrap_or("en")
+        .to_owned();
+    if !["en", "de", "pl"].contains(&locale.as_str()) {
+        return Err(failure("Fixture locale supports en, de, and pl only"));
+    }
+    if let Some(language) = root
+        .get("localization")
+        .and_then(|value| value["language"]["iso_code"].as_str())
+    {
+        if language != locale {
+            return Err(failure("Request locale and localization language disagree"));
+        }
+    }
+    Ok((liquid_core::model::to_object(&globals)?, locale))
+}
+
 struct Renderer {
     context: Arc<Context>,
     language: Arc<Language>,
@@ -2018,7 +2526,18 @@ impl Renderer {
         page: &str,
         diagnostic_only: bool,
     ) -> std::result::Result<Self, Box<dyn std::error::Error>> {
-        let fixture_bytes = fs::read(store)?;
+        Self::from_fixture_bytes(theme, fs::read(store)?, page, diagnostic_only)
+    }
+
+    fn from_fixture_bytes(
+        theme: PathBuf,
+        fixture_bytes: Vec<u8>,
+        page: &str,
+        diagnostic_only: bool,
+    ) -> std::result::Result<Self, Box<dyn std::error::Error>> {
+        if fixture_bytes.len() > MAX_FIXTURE_BYTES {
+            return Err("Fixture exceeds the 64 MiB context limit".into());
+        }
         let fixture_sha256 = format!("{:x}", Sha256::digest(&fixture_bytes));
         let fixture: Json =
             serde_json::from_str(&json_comments(std::str::from_utf8(&fixture_bytes)?)?)?;
@@ -2033,20 +2552,7 @@ impl Renderer {
             .flat_map(|group| group["settings"].as_array().cloned().unwrap_or_default())
             .collect::<Vec<_>>();
         let schema = json!({"settings":definitions});
-        let mut globals = liquid_core::model::to_object(&fixture["globals"])?;
-        let page_data = &fixture["pages"][page];
-        for (target, source) in [("page_title", "title"), ("page_description", "description")] {
-            globals.insert(
-                target.into(),
-                liquid_core::model::to_value(&page_data[source])?,
-            );
-        }
-        globals.insert("current_page".into(), Value::scalar(1));
-        globals.entry("current_tags").or_insert(Value::Nil);
-        globals.insert(
-            "template".into(),
-            liquid_core::model::to_value(&json!({"name":page,"suffix":null}))?,
-        );
+        let (mut globals, locale) = page_globals(&fixture, page, diagnostic_only)?;
         if let Some(Value::Object(cart)) = globals.get_mut("cart") {
             if let Some(Value::Array(items)) = cart.get_mut("items") {
                 for (index, item) in items.iter_mut().enumerate() {
@@ -2058,11 +2564,21 @@ impl Renderer {
         }
         let mut context = Context {
             theme: theme.clone(),
-            locales: read_json(&theme.join("locales/en.default.json"))?,
+            locales: read_json(&theme.join(format!(
+                "locales/{}.json",
+                if locale == "en" {
+                    "en.default"
+                } else {
+                    &locale
+                }
+            )))?,
             sources,
             fixture,
+            page: page.to_owned(),
+            locale,
             globals,
             styles: Mutex::new(Vec::new()),
+            scripts: Mutex::new(BTreeSet::new()),
             calls: Mutex::new(BTreeMap::new()),
             rendered_sources: Mutex::new(Vec::new()),
             palette: Vec::new(),
@@ -2070,8 +2586,10 @@ impl Renderer {
             asset_cache: Mutex::new(BTreeMap::new()),
         };
         let mut settings = context.setting_defaults(&schema);
-        let data = read_json(&theme.join("config/settings_data.json"))?;
-        merge(&mut settings, &data["current"]);
+        if context.fixture["theme"]["configuration_source"] != "service" {
+            let data = read_json(&theme.join("config/settings_data.json"))?;
+            merge(&mut settings, &data["current"]);
+        }
         merge(&mut settings, &context.fixture["theme"]["settings"]);
         let mut settings = liquid_core::model::to_object(&settings)?;
         context.materialize_settings(&mut settings, &schema, &context.globals)?;
@@ -2252,7 +2770,7 @@ impl Renderer {
 
     fn report(&self, output: &RenderOutput) -> Result<Json> {
         let context = &self.context;
-        let report = json!({"engine":"liquid-rust","fixture_sha256":self.fixture_sha256,"theme_sha":context.fixture["theme"]["sha"],"theme":context.fixture["theme"],"store_schema_version":context.fixture["schema_version"],"configuration":{"parsing":"strict","strict_variables":false,"strict_filters":true},"sections_rendered":output.sections,"platform_calls":*context.calls.lock().map_err(failure)?,"sources":*context.rendered_sources.lock().map_err(failure)?,"platform_contract":{"pagination":"first page only","font":"configured Inter uses local system Arial","events":"synthetic product/cart view JSON","form_submission":"unsupported","cart_item_index":"derived zero-based index","payment_terms":"empty only when fixture explicitly disables service","optional_variables":"missing optional properties resolve to nil","clock":context.fixture["manifest"]["created_at"]},"error":output.error});
+        let report = json!({"engine":"liquid-rust","page":self.page,"page_type":context.fixture["pages"][&self.page]["type"].as_str().unwrap_or(&self.page),"locale":context.locale,"request_id":context.fixture["pages"][&self.page]["request_id"],"scenario_id":context.fixture["manifest"]["scenario_id"],"fixture_sha256":self.fixture_sha256,"theme_sha":context.fixture["theme"]["sha"],"theme":context.fixture["theme"],"store_schema_version":context.fixture["schema_version"],"configuration":{"parsing":"strict","strict_variables":false,"strict_filters":true},"sections_rendered":output.sections,"platform_calls":*context.calls.lock().map_err(failure)?,"sources":*context.rendered_sources.lock().map_err(failure)?,"platform_contract":{"pagination":"request current_page with scoped product window","font":"configured Inter uses local system Arial","events":"synthetic product/collection/cart view JSON","javascript":"raw inline script once per source; bundling unsupported","structured_data":"synthetic Schema.org ProductGroup; not hosted Shopify byte output","payment_button":"empty only when fixture explicitly disables service","form_submission":"unsupported","cart_item_index":"derived zero-based index","payment_terms":"empty only when fixture explicitly disables service","optional_variables":"missing optional properties resolve to nil","clock":context.fixture["manifest"]["created_at"]},"error":output.error});
         Ok(report)
     }
 
@@ -2262,7 +2780,7 @@ impl Renderer {
         output: &RenderOutput,
     ) -> std::result::Result<(), Box<dyn std::error::Error>> {
         fs::create_dir_all(directory)?;
-        fs::write(directory.join(format!("{}.html", self.page)), &output.html)?;
+        fs::write(directory.join("index.html"), &output.html)?;
         fs::write(directory.join("styles.css"), &output.css)?;
         fs::write(
             directory.join("report.json"),
@@ -2527,11 +3045,26 @@ fn serve_stdio(
     }
 }
 
+const MAX_FIXTURE_BYTES: usize = 64 * 1024 * 1024;
+
+fn read_fixture_stdin(reader: &mut impl Read) -> WorkerResult<Vec<u8>> {
+    read_bounded_fixture(reader, MAX_FIXTURE_BYTES)
+}
+
+fn read_bounded_fixture(reader: &mut impl Read, limit: usize) -> WorkerResult<Vec<u8>> {
+    let mut bytes = Vec::new();
+    reader.take((limit + 1) as u64).read_to_end(&mut bytes)?;
+    if bytes.is_empty() || bytes.len() > limit {
+        return Err("Expected nonempty authoritative fixture JSON within 64 MiB".into());
+    }
+    Ok(bytes)
+}
+
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut options = BTreeMap::new();
     let mut arguments = std::env::args().skip(1);
     while let Some(key) = arguments.next() {
-        let value = if key == "--serve-stdio" {
+        let value = if ["--serve-stdio", "--fixture-stdin"].contains(&key.as_str()) {
             "true".to_owned()
         } else {
             arguments.next().ok_or("Each option requires a value")?
@@ -2544,12 +3077,14 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .or_else(|| options.get("--theme"))
             .ok_or("--theme-root is required")?,
     );
-    let store = PathBuf::from(
-        options
-            .get("--fixture")
-            .or_else(|| options.get("--store"))
-            .ok_or("--fixture is required")?,
-    );
+    let stdin_fixture = options.contains_key("--fixture-stdin");
+    let store = options.get("--fixture").or_else(|| options.get("--store"));
+    if stdin_fixture == store.is_some() {
+        return Err("Use exactly one of --fixture/--store or --fixture-stdin".into());
+    }
+    if stdin_fixture && options.contains_key("--serve-stdio") {
+        return Err("--fixture-stdin and --serve-stdio cannot share stdin".into());
+    }
     let page = options.get("--page").map(String::as_str).unwrap_or("index");
     let serving = options.contains_key("--serve-stdio");
     let scope = options
@@ -2590,7 +3125,17 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         }
     }
     let start = Instant::now();
-    let mut renderer = Renderer::new(theme, &store, page, options.contains_key("--parse-source"))?;
+    let mut renderer = if stdin_fixture {
+        let bytes = read_fixture_stdin(&mut io::stdin().lock())?;
+        Renderer::from_fixture_bytes(theme, bytes, page, options.contains_key("--parse-source"))?
+    } else {
+        Renderer::new(
+            theme,
+            Path::new(store.ok_or("Missing fixture path")?),
+            page,
+            options.contains_key("--parse-source"),
+        )?
+    };
     let initialization_ms = start.elapsed().as_secs_f64() * 1000.0;
     if serving {
         if renderer.context.fixture["theme"]["sha"] != HORIZON_THEME_SHA {
@@ -2636,7 +3181,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let output = renderer.render(scope, options.get("--only").map(String::as_str))?;
     renderer.write_output(&output_dir, &output)?;
     output.ensure_success()?;
-    println!("{}", output_dir.join(format!("{page}.html")).display());
+    println!("{}", output_dir.join("index.html").display());
     Ok(())
 }
 
@@ -2655,14 +3200,284 @@ mod tests {
                     .collect(),
             ),
             fixture: json!({"globals":{"shop":{"currency":"USD"}},"theme":{}}),
+            page: "index".to_owned(),
+            locale: "en".to_owned(),
             globals: liquid_core::object!({"shop":{"name":"Fixture"}}),
             styles: Mutex::new(Vec::new()),
+            scripts: Mutex::new(BTreeSet::new()),
             calls: Mutex::new(BTreeMap::new()),
             rendered_sources: Mutex::new(Vec::new()),
             palette: Vec::new(),
             json_cache: Mutex::new(BTreeMap::new()),
             asset_cache: Mutex::new(BTreeMap::new()),
         })
+    }
+
+    #[test]
+    fn page_resources_use_canonical_registry_and_selected_variant() {
+        let fixture = json!({"globals":{"shop":{"name":"Fixture"},"canonical_url":"https://fixture.example/","request":{"locale":{"iso_code":"de"}},"localization":{"language":{"iso_code":"de"}},"all_products":{"boot":{"id":7,"title":"Boot","variants":[{"id":71},{"id":72}]}}},"pages":{"product":{"type":"product","url":"/products/boot","canonical_url":"https://fixture.example/products/boot","title":"Boot page","description":"Original synthetic fixture","resource":{"type":"product","handle":"boot","variant_id":72}}}});
+        let (globals, locale) = page_globals(&fixture, "product", false).unwrap();
+        assert_eq!(locale, "de");
+        assert_eq!(
+            globals["product"]
+                .as_object()
+                .unwrap()
+                .get("selected_variant")
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .get("id")
+                .unwrap()
+                .to_kstr(),
+            "72"
+        );
+        assert_eq!(
+            globals["closest"]
+                .as_object()
+                .unwrap()
+                .get("product")
+                .unwrap()
+                .to_value(),
+            globals["product"]
+        );
+        assert_eq!(
+            globals["canonical_url"].to_kstr(),
+            "https://fixture.example/products/boot"
+        );
+        assert_eq!(
+            globals["request"]
+                .as_object()
+                .unwrap()
+                .get("path")
+                .unwrap()
+                .to_kstr(),
+            "/products/boot"
+        );
+        assert_eq!(
+            fixture["globals"]["all_products"]["boot"].get("selected_variant"),
+            None
+        );
+        let mut invalid = fixture.clone();
+        invalid["pages"]["product"]["resource"]["variant_id"] = json!(73);
+        assert!(page_globals(&invalid, "product", false).is_err());
+        invalid = fixture.clone();
+        invalid["globals"]["localization"]["language"]["iso_code"] = json!("en");
+        assert!(page_globals(&invalid, "product", false).is_err());
+    }
+
+    #[test]
+    fn index_metadata_keeps_absolute_canonical_and_diagnostic_parse_needs_no_page() {
+        let fixture = json!({"globals":{"canonical_url":"https://fixture.example/","current_tags":[],"request":{"locale":{"iso_code":"en"}}},"pages":{"index":{"title":"Home","description":"Home description","url":"/"}}});
+        let (globals, _) = page_globals(&fixture, "index", false).unwrap();
+        assert_eq!(
+            globals["canonical_url"].to_kstr(),
+            "https://fixture.example/"
+        );
+        assert_eq!(globals["current_tags"].as_array().unwrap().size(), 0);
+        assert!(page_globals(&fixture, "absent", true).is_ok());
+        assert!(page_globals(&fixture, "absent", false).is_err());
+    }
+
+    #[test]
+    fn page_overrides_and_page_closest_survive_section_and_snippet_frames() {
+        let mut host = Arc::try_unwrap(context(&[("sections/probe", "{{ section.settings.text }}:{% content_for 'blocks' %}{% schema %}{\"tag\":null,\"settings\":[{\"id\":\"text\",\"type\":\"text\",\"default\":\"default\"}]}{% endschema %}"), ("blocks/child", "{% render 'leaf' %}{% schema %}{\"tag\":null}{% endschema %}"), ("leaf", "{{ closest.product.title }}/{{ closest.collection.title }}")])).unwrap();
+        host.page = "product".to_owned();
+        host.globals.insert(
+            "closest".into(),
+            liquid_core::value!({"product":{"title":"Product"},"collection":{"title":"All"}}),
+        );
+        host.fixture["theme"] = json!({"section_overrides":{"main":{"settings":{"text":"base"}}},"page_overrides":{"product":{"section_overrides":{"main":{"settings":{"text":"product page"}}}}}});
+        let mut renderer = Renderer::from_context(Arc::new(host), "product".to_owned(), json!({"order":["main"],"sections":{"main":{"type":"probe","blocks":{"child":{"type":"child"}},"block_order":["child"]}}}), "fixture".to_owned()).unwrap();
+        assert_eq!(
+            renderer.render("template", None).unwrap().html,
+            b"product page:Product/All"
+        );
+    }
+
+    #[test]
+    fn pagination_slices_only_the_body_and_preserves_collection_counts() {
+        let source = "{% paginate collection.products by 2 %}{% for product in collection.products %}{{ product.id }}{% endfor %}:{{ collection.products_count }}:{{ paginate.pages }}:{{ paginate.next.url }}{% endpaginate %}|{{ collection.products.size }}";
+        let values = liquid_core::object!({"collection":{"products":[{"id":1},{"id":2},{"id":3},{"id":4}],"products_count":4},"request":{"path":"/collections/all"},"current_page":1});
+        assert_eq!(
+            render(context(&[]), source, values).unwrap(),
+            "12:4:2:/collections/all?page=2|4"
+        );
+        let values = liquid_core::object!({"products":[1,2,3,4,5],"current_page":2,"request":{"path":"/collections/all"}});
+        assert_eq!(render(context(&[]), "{% paginate products by 2 %}{{ products | join: ',' }}:{{ paginate.current_offset }}:{{ paginate.previous.url }}:{{ paginate.next.url }}{% endpaginate %}", values).unwrap(), "3,4:2:/collections/all?page=1:/collections/all?page=3");
+        let values = liquid_core::object!({"products":[1,2,3,4,5],"current_page":3});
+        assert_eq!(render(context(&[]), "{% paginate products by 2 %}{{ products | join: ',' }}:{{ paginate.current_offset }}:{{ paginate.next | default: 'nil' }}{% endpaginate %}", values).unwrap(), "5:4:nil");
+        let values = liquid_core::object!({"products":[1,2,3],"current_page":3});
+        assert!(render(
+            context(&[]),
+            "{% paginate products by 2 %}x{% endpaginate %}",
+            values
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn javascript_preserves_raw_source_and_deduplicates_per_request() {
+        let mut renderer = prepared(&[("sections/probe", "{% render 'script' %}{% render 'script' %}{% schema %}{\"tag\":null}{% endschema %}"), ("script", "{% javascript %}\nconst raw = '{{ ignored }}';\n{% endjavascript %}")], json!({"one":{"type":"probe"}}), json!(["one"]));
+        let expected = b"<script data-shopify>\nconst raw = '{{ ignored }}';\n</script>";
+        for _ in 0..2 {
+            assert_eq!(renderer.render("template", None).unwrap().html, expected);
+        }
+        assert_eq!(renderer.context.scripts.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn declared_json_order_option_value_escape_and_disabled_checkout_are_bounded() {
+        let mut host = Arc::try_unwrap(context(&[(
+            "probe",
+            "{{ option | escape }}{{ object | json }}{{ form | payment_button }}",
+        )]))
+        .unwrap();
+        host.fixture["manifest"] = json!({"mock_contract":{"json_object_order":"sorted"},"platform_capabilities":{"payment_button":false}});
+        let values = liquid_core::object!({"option":{"id":1,"name":"A&B","available":true,"selected":true,"variant":Value::Nil,"product_url":Value::Nil},"object":{"z":{"y":2,"a":1},"a":0},"form":{"type":"product"}});
+        assert_eq!(render(Arc::new(host), "{{ option | escape }}:{{ option.size }}|{{ object | json }}|{{ form | payment_button }}", values).unwrap(), "A&amp;B:3|{\"a\":0,\"z\":{\"a\":1,\"y\":2}}|");
+        assert!(render(
+            context(&[("probe", "{{ form | payment_button }}")]),
+            "{{ form | payment_button }}",
+            liquid_core::object!({"form":{"type":"product"}})
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn structured_product_group_uses_real_fixture_variants_and_locale_canonical() {
+        let product = liquid_core::value!({"id":7,"title":"Canvas & daypack","description":"<p>Original mock</p>","vendor":"Harbor","images":[{"src":"/cdn/shop/files/mock.svg"}],"variants":[{"id":71,"title":"Blue","sku":"MOCK-71","url":"/products/pack?variant=71","price":9500,"available":true}]});
+        let globals =
+            liquid_core::object!({"canonical_url":"https://fixture.example/de/products/pack"});
+        let runtime = RuntimeBuilder::new().set_globals(&globals).build();
+        let output = product_structured_data(&product, &runtime)
+            .unwrap()
+            .to_kstr()
+            .into_string();
+        let parsed: Json = serde_json::from_str(&output).unwrap();
+        assert!(output.starts_with(
+            "{\"@context\":\"https://schema.org\",\"@type\":\"ProductGroup\",\"@id\":"
+        ));
+        assert_eq!(
+            parsed["@id"],
+            "https://fixture.example/de/products/pack#product"
+        );
+        assert_eq!(parsed["description"], "Original mock");
+        assert_eq!(
+            parsed["image"][0],
+            "https://fixture.example/cdn/shop/files/mock.svg"
+        );
+        assert_eq!(
+            parsed["hasVariant"][0]["url"],
+            "https://fixture.example/products/pack?variant=71"
+        );
+        assert_eq!(parsed["hasVariant"][0]["offers"]["price"], "95.00");
+        assert!(product_structured_data(&Value::Nil, &runtime).is_err());
+    }
+
+    #[test]
+    fn polish_integer_plural_categories_use_the_actual_locale_keys() {
+        let mut host =
+            Arc::try_unwrap(context(&[("probe", "{{ 'items' | t: count: count }}")])).unwrap();
+        host.locale = "pl".to_owned();
+        host.locales = json!({"items":{"one":"one","few":"few","many":"many","other":"other"}});
+        let host = Arc::new(host);
+        for (count, expected) in [
+            (1, "one"),
+            (2, "few"),
+            (4, "few"),
+            (12, "many"),
+            (14, "many"),
+            (22, "few"),
+            (25, "many"),
+            (0, "many"),
+        ] {
+            assert_eq!(
+                render(
+                    host.clone(),
+                    "{{ 'items' | t: count: count }}",
+                    liquid_core::object!({"count":count})
+                )
+                .unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn authoritative_stdin_context_preserves_exact_bytes_and_rejects_invalid_bounds() {
+        let bytes = b"{\n  \"synthetic\": true\n}\n";
+        assert_eq!(
+            read_fixture_stdin(&mut io::Cursor::new(bytes)).unwrap(),
+            bytes
+        );
+        assert!(read_fixture_stdin(&mut io::Cursor::new(b"")).is_err());
+        let mut large = io::Cursor::new(b"0123456789");
+        assert!(read_bounded_fixture(&mut large, 4).is_err());
+        assert_eq!(large.position(), 5);
+    }
+
+    #[test]
+    fn service_configuration_uses_authoritative_settings_without_local_current_data() {
+        let directory = std::env::temp_dir().join(format!(
+            "horizon-service-config-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        for name in [
+            "snippets",
+            "blocks",
+            "sections",
+            "layout",
+            "config",
+            "locales",
+            "templates",
+        ] {
+            fs::create_dir_all(directory.join(name)).unwrap();
+        }
+        // Original minimal theme: persisted local settings are deliberately absent.
+        fs::write(
+            directory.join("config/settings_schema.json"),
+            r#"[{"settings":[{"id":"title","type":"text","default":"schema default"}]}]"#,
+        )
+        .unwrap();
+        fs::write(directory.join("locales/en.default.json"), "{}").unwrap();
+        fs::write(
+            directory.join("sections/probe.liquid"),
+            "{{ settings.title }}{% schema %}{\"tag\":null}{% endschema %}",
+        )
+        .unwrap();
+        fs::write(
+            directory.join("templates/index.json"),
+            r#"{"order":["main"],"sections":{"main":{"type":"probe"}}}"#,
+        )
+        .unwrap();
+        let mut fixture = json!({"synthetic":true,"schema_version":1,"theme":{"configuration_source":"service","settings":{"title":"service setting"}},"globals":{"request":{"locale":{"iso_code":"en"}},"localization":{"language":{"iso_code":"en"}}},"pages":{"index":{"template":"templates/index.json"}}});
+        let mut renderer = Renderer::from_fixture_bytes(
+            directory.clone(),
+            serde_json::to_vec(&fixture).unwrap(),
+            "index",
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            renderer.render("template", None).unwrap().html,
+            b"service setting"
+        );
+        fixture["theme"]
+            .as_object_mut()
+            .unwrap()
+            .remove("configuration_source");
+        assert!(Renderer::from_fixture_bytes(
+            directory.clone(),
+            serde_json::to_vec(&fixture).unwrap(),
+            "index",
+            false
+        )
+        .is_err());
+        fs::remove_dir_all(directory).unwrap();
     }
 
     fn render(context: Arc<Context>, source: &str, values: Object) -> Result<String> {
@@ -2881,7 +3696,7 @@ mod tests {
             render(Arc::new(enabled), "{{ form | payment_terms }}", values)
                 .unwrap_err()
                 .to_string()
-                .contains("explicitly disabled cart financing")
+                .contains("explicitly disabled product/cart financing")
         );
     }
     #[test]

@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package horizon.store.v1;
+
+// Mock data authority. Transport authentication binds the caller to tenant_id
+// before any store, configuration, page or cart lookup occurs.
+service StoreContextService {
+  rpc GetRenderContext(GetRenderContextRequest) returns (GetRenderContextResponse);
+}
+
+message GetRenderContextRequest {
+  string tenant_id = 1;
+  string storefront_id = 2;
+  string locale = 3;
+  string configuration = 4;
+  string page = 5;
+  uint32 current_page = 6;
+  string cart_id = 7;
+  // Transport correlation only; never changes the deterministic context JSON.
+  string request_id = 8;
+}
+
+message GetRenderContextResponse {
+  // Authoritative immutable UTF-8 JSON snapshot, including store/theme settings.
+  bytes context_json = 1;
+  // Lowercase SHA256 of exactly context_json, not a reserialized document.
+  string context_sha256 = 2;
+  string snapshot_revision = 3;
+  string tenant_id = 4;
+  string storefront_id = 5;
+  string locale = 6;
+  string configuration = 7;
+  string page = 8;
+  uint32 current_page = 9;
+  string cart_id = 10;
+  string request_id = 11;
+}
