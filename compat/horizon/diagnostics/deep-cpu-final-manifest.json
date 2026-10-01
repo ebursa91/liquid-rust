@@ -1,0 +1,70 @@
+{
+  "base_head": "a468a7ac18155f98fb9fe51881eafac50bae8105",
+  "variants": [
+    {
+      "name": "rust_baseline",
+      "source_root": "$EVIDENCE/liquid-rust-deep-baseline",
+      "binary": "$EVIDENCE/horizon-regex-binaries/candidate",
+      "binary_sha256": "598f23d126440e402ce5911ee10fd48efe79f360bba8c5427395f73c40f14e94",
+      "changed_source_sha256": {},
+      "build_flags": {
+        "CARGO_PROFILE_RELEASE_LTO": null,
+        "CARGO_PROFILE_RELEASE_CODEGEN_UNITS": null,
+        "RUSTFLAGS": null,
+        "CARGO_PROFILE_RELEASE_DEBUG": null
+      }
+    },
+    {
+      "name": "rust_host_overlay",
+      "source_root": "$EVIDENCE/liquid-rust-horizon-host-overlay",
+      "binary": "$EVIDENCE/horizon-host-overlay-target/release/examples/horizon",
+      "binary_sha256": "cc17fcd59c2474155e29f0b035a2d761091daa8ad46360844ce9ae4e2b94b968",
+      "changed_source_sha256": {
+        "examples/horizon.rs": "551336874e0da4d62b01dd93f522cc55310cf5355b9ebfecfe2905ba7ca0d347"
+      },
+      "patch": "$EVIDENCE/horizon-host-overlay.patch",
+      "patch_sha256": "1b7fc9e099893cffcc3d3f018a9f14278ba715513c5972e347694e770083a370",
+      "build_flags": {
+        "CARGO_PROFILE_RELEASE_LTO": null,
+        "CARGO_PROFILE_RELEASE_CODEGEN_UNITS": null,
+        "RUSTFLAGS": null,
+        "CARGO_PROFILE_RELEASE_DEBUG": null
+      }
+    },
+    {
+      "name": "rust_host_closest",
+      "source_root": "$EVIDENCE/liquid-rust-horizon-host-closest",
+      "binary": "$EVIDENCE/horizon-host-closest-target/release/examples/horizon",
+      "binary_sha256": "4fd5a38a39843929a37c42c2a70fd047e899c337440b2744a936d0815156fd6f",
+      "changed_source_sha256": {
+        "examples/horizon.rs": "9854a7402ec298a70c0389df9f25fb2f534d871322231ee7078aed1881906504"
+      },
+      "patch": "$EVIDENCE/horizon-host-closest.patch",
+      "patch_sha256": "ff0bc4c26a9b18cf5e5a53dd6fa6afc166b7a933a6ad934c2d4e6842a73186af",
+      "build_flags": {
+        "CARGO_PROFILE_RELEASE_LTO": null,
+        "CARGO_PROFILE_RELEASE_CODEGEN_UNITS": null,
+        "RUSTFLAGS": null,
+        "CARGO_PROFILE_RELEASE_DEBUG": null
+      }
+    },
+    {
+      "name": "rust_host_closest_thinlto",
+      "source_root": "$EVIDENCE/liquid-rust-horizon-host-closest-thinlto",
+      "binary": "$EVIDENCE/horizon-host-closest-thinlto-target/release/examples/horizon",
+      "binary_sha256": "327a11383281d012e45253147895afce8cbc568d38f895d7e6d768dff0fa3d72",
+      "changed_source_sha256": {
+        "examples/horizon.rs": "9854a7402ec298a70c0389df9f25fb2f534d871322231ee7078aed1881906504"
+      },
+      "patch": "$EVIDENCE/horizon-host-closest.patch",
+      "patch_sha256": "ff0bc4c26a9b18cf5e5a53dd6fa6afc166b7a933a6ad934c2d4e6842a73186af",
+      "build_flags": {
+        "CARGO_PROFILE_RELEASE_LTO": "thin",
+        "CARGO_PROFILE_RELEASE_CODEGEN_UNITS": "1",
+        "RUSTFLAGS": null,
+        "CARGO_PROFILE_RELEASE_DEBUG": null
+      },
+      "build_provenance": "$EVIDENCE/horizon-host-closest-thinlto.json"
+    }
+  ]
+}

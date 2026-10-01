@@ -1,0 +1,68 @@
+{
+  "base_head": "a468a7ac18155f98fb9fe51881eafac50bae8105",
+  "variants": [
+    {
+      "name": "rust_baseline",
+      "source_root": "$EVIDENCE/liquid-rust-deep-baseline",
+      "binary": "$EVIDENCE/horizon-regex-binaries/candidate",
+      "binary_sha256": "598f23d126440e402ce5911ee10fd48efe79f360bba8c5427395f73c40f14e94",
+      "changed_source_sha256": {}
+    },
+    {
+      "name": "rust_path_capacity",
+      "source_root": "$EVIDENCE/liquid-rust-core-path",
+      "binary": "$EVIDENCE/horizon-core-path-target/release/examples/horizon",
+      "binary_sha256": "16dc1a0fb030600abdce042bde3d3223bacdf9d7bb2c1a1fb1080f793be6c1b4",
+      "changed_source_sha256": {
+        "crates/core/src/model/find.rs": "ab6d964bda9395822c4d16b5ad7f518a982366837020f75450736575d4ceb5cc",
+        "crates/core/src/runtime/variable.rs": "b788f92f3b791b40d377ba75e61cfc3ee87f6cff1664143df81c4497de920e2a"
+      },
+      "patch": "$EVIDENCE/horizon-core-path-candidate.patch",
+      "patch_sha256": "b1d551c5731d8c1d8da3449da9a42b5a54df6da35a912bea209673e8c0ca4df7"
+    },
+    {
+      "name": "rust_path_inline4",
+      "source_root": "$EVIDENCE/liquid-rust-core-path-inline",
+      "binary": "$EVIDENCE/horizon-core-path-inline-target/release/examples/horizon",
+      "binary_sha256": "b862dd5e1667def6d6edc2de552daa3c8769297921eb444ae8f79b34e3606b3a",
+      "changed_source_sha256": {
+        "crates/core/src/model/find.rs": "2b3746c8b27e420af76472f910e0cecb51f892c7e93c5f0995db170547656490"
+      },
+      "patch": "$EVIDENCE/horizon-core-path-inline-candidate.patch",
+      "patch_sha256": "a2f13388b0bbf752802bdcbbc1fadfa7479daa818ac99e771af40f507ceb9c11"
+    },
+    {
+      "name": "rust_loop",
+      "source_root": "$EVIDENCE/liquid-rust-loop-scope",
+      "binary": "$EVIDENCE/horizon-loop-evidence/horizon",
+      "binary_sha256": "21bfb0915b9f1d5687de5af134690abc0d2964e56e6c7cc6f0b595fb6487857c",
+      "changed_source_sha256": {
+        "crates/lib/src/stdlib/blocks/for_block.rs": "0dc46d8f9406941da8a48c4a429bc62ef498d4942439d85bc96c691905d62186"
+      },
+      "patch": "$EVIDENCE/horizon-loop-scope-candidate.patch",
+      "patch_sha256": "e38d1b826243acce30f657c8123577cba3c221ecb2df28679fcf89c08a9a3fa1"
+    },
+    {
+      "name": "rust_host_keywords",
+      "source_root": "$EVIDENCE/liquid-rust-horizon-host-keywords",
+      "binary": "$EVIDENCE/horizon-host-keywords-target/release/examples/horizon",
+      "binary_sha256": "db317f41cc637107ee8543f4ebcb5d614abeb746908335c59a4053d840daa8ac",
+      "changed_source_sha256": {
+        "examples/horizon.rs": "7d910bc04ec85ca150da5d908baa79046e885e9f6e0272a32307dae85e924599"
+      },
+      "patch": "$EVIDENCE/horizon-host-keywords.patch",
+      "patch_sha256": "b4b4b4e4fb174d99d4286f5a1a1d0d9188b5464a4b95ca7b143c0b26abc40265"
+    },
+    {
+      "name": "rust_host_overlay",
+      "source_root": "$EVIDENCE/liquid-rust-horizon-host-overlay",
+      "binary": "$EVIDENCE/horizon-host-overlay-target/release/examples/horizon",
+      "binary_sha256": "cc17fcd59c2474155e29f0b035a2d761091daa8ad46360844ce9ae4e2b94b968",
+      "changed_source_sha256": {
+        "examples/horizon.rs": "551336874e0da4d62b01dd93f522cc55310cf5355b9ebfecfe2905ba7ca0d347"
+      },
+      "patch": "$EVIDENCE/horizon-host-overlay.patch",
+      "patch_sha256": "1b7fc9e099893cffcc3d3f018a9f14278ba715513c5972e347694e770083a370"
+    }
+  ]
+}

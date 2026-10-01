@@ -1,4 +1,42 @@
-# HTTP throughput checkpoint, 2026-10-01
+# Final shared-context HTTP throughput, 2026-10-01
+
+The default release Rust host with shared scopes/closest measured **35.75 verified RPS** at four closed-loop clients. Ruby 4.0.7 YJIT measured **33.60 RPS**. All hosts freshly rendered the same original prepared four-product Horizon homepage into identical bytes. [Complete numeric samples and accounting](results/2026-10-01-deep-rps.json) retain every window, latency sample, source/binary fingerprint and failure. Implementation: Rust `ecd9ee44212d95ac70dec90fa21b4aa0c99b4d6c`; unchanged Ruby engine `7db1cc962c1a90a40613da98fdff18f061680bb8`.
+
+RPS counts independently verified successful HTTP responses completed inside a nominal 20-second window, divided by 20. Tables report medians of three fresh-pool batch rates, with all batch ranges retained. Closed-loop p95 pools request latencies across the corresponding three windows, including drain. Shared-host scheduling is visible; these results do not rank languages generally or establish a Fiber advantage.
+
+| Host | One client RPS | Four clients RPS | Four-client batch range | Four-client p95 ms |
+| --- | ---: | ---: | ---: | ---: |
+| Rust default release | 32.00 | 35.75 | 22.40–40.45 | 229.18 |
+| Ruby plain | 14.30 | 16.90 | 15.35–16.95 | 348.70 |
+| Ruby YJIT | 26.25 | 33.60 | 26.20–34.70 | 193.69 |
+| Ruby YJIT + Fiber | 30.35 | 32.35 | 29.60–33.65 | 181.20 |
+
+Open-loop load uses absolute scheduled arrivals. Each host has 600 offers at 10 RPS and 2,400 at 40 RPS across three windows. Deadline-bound overload performance is not unconstrained service capacity.
+
+| Host | 10 offered RPS: median completed RPS | 40 offered RPS: median completed RPS | 40 RPS timeouts / 2,400 | 40 RPS successes after window |
+| --- | ---: | ---: | ---: | ---: |
+| Rust default release | 10.00 | 37.05 | 347 | 60 |
+| Ruby plain | 10.00 | 6.45 | 2015 | 0 |
+| Ruby YJIT | 10.00 | 33.20 | 204 | 260 |
+| Ruby YJIT + Fiber | 10.00 | 24.50 | 839 | 18 |
+
+Across all 51 windows, including the control, **45,771 offers** produced **42,365 verified successes** and **3,405 timeouts**. Successes include **41,919 inside the window** and **446 during drain**. Scheduler/queue drops: 1/0; correctness/HTTP/connection errors: 0/0/0. No failed or drained requests are removed from accounting. Client `sent` counts attempts after connection acquisition, not independent server admission.
+
+## Setup and calibration
+
+One worker uses CPU 2, the common Python asyncio HTTP/1.1 frontend CPU 6, and client/controller CPU 0. Three batches start a fresh pool per host, exclude 50 verified warmups, and run serial seeded-randomized two-second ramps / 20-second windows. Closed concurrency is 1/4. Open load uses 64 connections, at most 256 outstanding operations, a five-second deadline and bounded drain. The frontend has a 512-request queue. AST/source caches persist, request state stays fresh, GC is enabled, and engine responses are never cached. Fiber mode wraps a synchronous render on one Ruby thread and supplies no CPU parallelism.
+
+Every successful response carries the same **714,432-byte** framed HTML/CSS body. The explicitly byte-cached transport control uses the same framing and full hash-verifying client. Its rates were **356.35, 381.65, 296.05 RPS**; median control / fastest engine window was **8.81**, exceeding the required fivefold headroom. Even the minimum control / fastest engine was 7.32. The earlier four-worker pilot failed calibration and supports no scaling claim.
+
+The shared i9-9900K workstation's one-minute load ranged **3.36–12.86**. Affinity does not reserve cores, remove sibling/system load or control frequency. The calibration gate does not establish identical uncontended transport conditions for each serial window. CPU snapshots start after READY; per-window bounds include client setup, ramp, measurement and drain. Pool request counts aggregate all windows. Instantaneous RSS differs from lifetime VmHWM, which includes startup/warmup; neither is per-request retained memory. Three-batch bootstrap intervals are descriptive.
+
+This experiment fetches no gRPC data during measured requests. Native correctness runs warm the service projection cache and use different Ruby/Rust fetch boundaries; see [native data timing boundaries](https://github.com/ebursa91/liquid-rust/blob/codex/horizon-mock-store/compat/horizon/DATA_SERVICE.md). Internal larger-page render-wall, worker CPU and prepared HTTP throughput are separate workloads. Do not invert CPU/render medians into RPS or combine separately executed checkpoints into a precise speedup. Exact fixture/theme/output pins remain unchanged from the historical run below.
+
+Reproduce with [the fork's HTTP harness and method](https://github.com/ebursa91/liquid-rust/blob/codex/horizon-mock-store/compat/horizon/RPS.md), selecting `--worker-counts 1 --batches 3 --duration 20 --ramp 2 --warmup 50 --concurrency-multipliers 1 4 --rates-one 10 40 --headroom 5`. Prepare dependencies/builds outside measurement; preserve all distributions, calibration and error/drain accounting. Live RPC throughput, wider catalogs and calibrated multi-worker scaling remain separate measurements.
+
+---
+
+# Earlier regex-only HTTP checkpoint, 2026-10-01
 
 The release Rust host with compiled regex reuse reached **25.85 verified RPS** at four closed-loop clients. Ruby 4.0.7 YJIT reached **28.90 RPS**; its Fiber wrapper reached **34.05 RPS** in this run. All hosts rendered the same original synthetic homepage into exactly the same bytes. This shared-host experiment compares configured hosts, not languages generally. It does not establish a Fiber speed advantage.
 
