@@ -1,0 +1,3879 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "case": "harbor-100-en-default-collection",
+      "profile": {
+        "bytes": 43061994,
+        "sha256": "b8c27dd20dc6ae9a3671fd0ef1c00392fff6c0865916da0ddbe090931016d3bf"
+      },
+      "benchmark": {
+        "benchmark_mode": "direct",
+        "build_profile": "release",
+        "correctness_verified": true,
+        "css": {
+          "bytes": 320252,
+          "sha256": "8f769ff9d0f07d8a2dea6b6cdba67cb683902f432563d7c5f23340e5a560ca9e"
+        },
+        "diagnostics": {
+          "configuration": {
+            "parsing": "strict",
+            "strict_filters": true,
+            "strict_variables": false
+          },
+          "engine": "liquid-rust",
+          "error": null,
+          "fixture_sha256": "9d95ac445d7ddf8f4b67684f8c05ca4bda19d7a12d125dc7ed0e7a49f68f758e",
+          "locale": "en",
+          "page": "collection",
+          "page_type": "collection",
+          "platform_calls": {
+            "asset_url": 92,
+            "color_brightness": 36,
+            "color_contrast": 6,
+            "color_darken": 4,
+            "color_lighten": 3,
+            "content_for": 58,
+            "date": 1,
+            "date:fixture_clock": 1,
+            "doc": 1191,
+            "escape": 68,
+            "font_face": 6,
+            "font_modify": 12,
+            "form": 16,
+            "image_tag": 30,
+            "image_url": 66,
+            "inline_asset_content": 66,
+            "item_count_for_variant": 2,
+            "javascript": 1,
+            "json": 2,
+            "link_to": 1,
+            "md5": 24,
+            "money": 118,
+            "money_with_currency": 2,
+            "paginate": 2,
+            "payment_terms": 1,
+            "preload_tag": 1,
+            "render": 1302,
+            "schema": 143,
+            "sections": 2,
+            "standard_event_data": 30,
+            "style": 15,
+            "stylesheet": 807,
+            "stylesheet_tag": 3,
+            "t": 179
+          },
+          "platform_contract": {
+            "cart_item_index": "derived zero-based index",
+            "clock": "2026-01-15 12:00:00 +0000",
+            "events": "synthetic product/collection/cart view JSON",
+            "focal_point": "registered exact numeric xy pairs project at expression evaluation; identical xy objects also match; not arbitrary Drop/filter-element coercion",
+            "font": "configured Inter uses local system Arial",
+            "form_submission": "unsupported",
+            "javascript": "raw inline script once per source; bundling unsupported",
+            "option_value": "declared option shape uses display-name size; explicit size keys retain their values",
+            "optional_variables": "missing optional properties resolve to nil",
+            "pagination": "request current_page with scoped product window",
+            "payment_button": "empty only when fixture explicitly disables service",
+            "payment_terms": "empty only when fixture explicitly disables service",
+            "structured_data": "synthetic Schema.org ProductGroup; not hosted Shopify byte output"
+          },
+          "request_id": 1034776831940552130,
+          "scenario_id": "harbor-100-en-default",
+          "sections_rendered": [
+            "section",
+            "main"
+          ],
+          "sources": [
+            "sections/section.liquid",
+            "blocks/text.liquid",
+            "snippets/text.liquid",
+            "snippets/text-block-styles.liquid",
+            "snippets/spacing-padding.liquid",
+            "snippets/typography-style.liquid",
+            "snippets/section.liquid",
+            "snippets/contrast-override.liquid",
+            "snippets/background-media.liquid",
+            "snippets/video-background-styles.liquid",
+            "snippets/border-override.liquid",
+            "snippets/layout-panel-style.liquid",
+            "snippets/gap-style.liquid",
+            "snippets/spacing-style.liquid",
+            "sections/main-collection.liquid",
+            "snippets/collection-wrapper-styles.liquid",
+            "snippets/skip-to-content-link.liquid",
+            "blocks/filters.liquid",
+            "snippets/theme-drawer-styles.liquid",
+            "snippets/swatch-styles.liquid",
+            "snippets/pills-styles.liquid",
+            "snippets/filter-remove-buttons.liquid",
+            "snippets/overflow-list.liquid",
+            "snippets/sorting.liquid",
+            "snippets/icon.liquid",
+            "snippets/accordion-custom-component.liquid",
+            "snippets/summary-icon-styles.liquid",
+            "snippets/grid-density-controls.liquid",
+            "snippets/theme-drawer-header.liquid",
+            "blocks/_product-card.liquid",
+            "blocks/_product-card-gallery.liquid",
+            "snippets/quick-add.liquid",
+            "snippets/fly-to-cart-styles.liquid",
+            "snippets/add-to-cart-button.liquid",
+            "snippets/add-to-cart-button-styles.liquid",
+            "snippets/checkbox-styles.liquid",
+            "snippets/price-styles.liquid",
+            "snippets/quick-add-styles.liquid",
+            "snippets/video-placeholder-styles.liquid",
+            "snippets/deferred-media-product-model-styles.liquid",
+            "snippets/card-gallery.liquid",
+            "snippets/util-product-grid-card-size.liquid",
+            "snippets/util-autofill-img-size-attr.liquid",
+            "snippets/product-media.liquid",
+            "snippets/slideshow-styles.liquid",
+            "snippets/product-media-container-styles.liquid",
+            "snippets/product-card-gallery-zoom-details-styles.liquid",
+            "snippets/product-badges-styles.liquid",
+            "blocks/product-title.liquid",
+            "blocks/price.liquid",
+            "snippets/price.liquid",
+            "snippets/payment-terms-styles.liquid",
+            "blocks/swatches.liquid",
+            "snippets/product-card.liquid",
+            "snippets/size-style.liquid",
+            "snippets/product-card-styles.liquid",
+            "snippets/quantity-selector-styles.liquid",
+            "snippets/buy-buttons-styles.liquid",
+            "snippets/gift-card-recipient-form-styles.liquid",
+            "snippets/quick-add-modal-styles.liquid",
+            "snippets/dialog-styles.liquid",
+            "snippets/variant-picker-styles.liquid",
+            "snippets/product-grid.liquid",
+            "snippets/pagination-controls.liquid",
+            "layout/theme.liquid",
+            "snippets/view-transition-opt-in.liquid",
+            "snippets/meta-tags.liquid",
+            "snippets/stylesheets.liquid",
+            "snippets/card-hover-effect-styles.liquid",
+            "snippets/fonts.liquid",
+            "snippets/scripts.liquid",
+            "snippets/theme-styles-variables.liquid",
+            "snippets/brightness-opacities.liquid",
+            "snippets/color-palette.liquid",
+            "snippets/util-palette-hover-shift.liquid",
+            "snippets/chat-drawer.liquid",
+            "sections/header-announcements.liquid",
+            "blocks/_announcement.liquid",
+            "sections/header.liquid",
+            "blocks/_header-logo.liquid",
+            "snippets/image.liquid",
+            "blocks/_header-menu.liquid",
+            "snippets/submenu-font-styles.liquid",
+            "snippets/mega-menu-list.liquid",
+            "snippets/util-mega-menu-img-sizes-attr.liquid",
+            "snippets/menu-font-styles.liquid",
+            "snippets/header-drawer.liquid",
+            "snippets/localization-form.liquid",
+            "snippets/header-actions.liquid",
+            "snippets/cart-bubble.liquid",
+            "snippets/search.liquid",
+            "snippets/header-row.liquid",
+            "sections/footer.liquid",
+            "blocks/group.liquid",
+            "blocks/email-signup.liquid",
+            "snippets/button-custom-styles.liquid",
+            "snippets/input-custom-styles.liquid",
+            "snippets/group.liquid",
+            "blocks/menu.liquid",
+            "sections/footer-utilities.liquid",
+            "blocks/footer-copyright.liquid",
+            "blocks/footer-policy-list.liquid",
+            "blocks/social-links.liquid",
+            "snippets/cart-drawer.liquid",
+            "snippets/cart-products.liquid",
+            "snippets/cart-typography-styles.liquid",
+            "snippets/text-component-shimmer-styles.liquid",
+            "snippets/cart-disclosure-tooltip.liquid",
+            "snippets/volume-pricing-info.liquid",
+            "snippets/quantity-selector.liquid",
+            "snippets/cart-summary.liquid",
+            "snippets/tax-info.liquid",
+            "snippets/cart-items-component.liquid",
+            "snippets/theme-drawer.liquid",
+            "snippets/search-modal.liquid",
+            "snippets/predictive-search-styles.liquid",
+            "snippets/predictive-search-empty-state.liquid",
+            "snippets/predictive-search-products-list.liquid",
+            "snippets/resource-card.liquid",
+            "snippets/quick-add-modal.liquid",
+            "snippets/product-media-gallery-content-styles.liquid"
+          ],
+          "store_schema_version": 1,
+          "theme": {
+            "block_overrides": {
+              "button_H9gpTf": {
+                "settings": {
+                  "label": "Shop field essentials",
+                  "link": "/collections/all",
+                  "style_class": "button"
+                }
+              },
+              "text_YLPk4p": {
+                "settings": {
+                  "text": "<p>Equip your everyday adventure</p>",
+                  "text_color": "#000000"
+                }
+              }
+            },
+            "page_overrides": {
+              "collection": {
+                "section_overrides": {
+                  "main": {
+                    "settings": {
+                      "enable_infinite_scroll": false,
+                      "product_grid_width": "centered",
+                      "products_per_page": 24
+                    }
+                  }
+                }
+              },
+              "collection_last": {
+                "section_overrides": {
+                  "main": {
+                    "settings": {
+                      "enable_infinite_scroll": false,
+                      "product_grid_width": "centered",
+                      "products_per_page": 24
+                    }
+                  }
+                }
+              },
+              "collection_page_2": {
+                "section_overrides": {
+                  "main": {
+                    "settings": {
+                      "enable_infinite_scroll": false,
+                      "product_grid_width": "centered",
+                      "products_per_page": 24
+                    }
+                  }
+                }
+              },
+              "product": {
+                "block_overrides": {
+                  "variant_picker_R3rGDr": {
+                    "settings": {
+                      "show_swatches": false,
+                      "variant_style": "buttons"
+                    }
+                  }
+                }
+              }
+            },
+            "repository": "https://github.com/Shopify/horizon",
+            "section_overrides": {
+              "hero_jVaWmY": {
+                "settings": {
+                  "background_color": "#EEF1EA",
+                  "toggle_overlay": false
+                }
+              },
+              "product_list_fa6P9H": {
+                "settings": {
+                  "collection": "all",
+                  "max_products": 4
+                }
+              }
+            },
+            "settings": {
+              "color_palette": {
+                "background": "#ffffff",
+                "color1": "#333333",
+                "color2": "#EEF1EA",
+                "color3": "#DFDFDF",
+                "foreground": "#000000"
+              },
+              "page_width": "narrow"
+            },
+            "sha": "5acd1b6b66c02f61d3216e3adace5dd9e0404fc9"
+          },
+          "theme_sha": "5acd1b6b66c02f61d3216e3adace5dd9e0404fc9"
+        },
+        "engine": "liquid-rust",
+        "fixture_sha256": "9d95ac445d7ddf8f4b67684f8c05ca4bda19d7a12d125dc7ed0e7a49f68f758e",
+        "html": {
+          "bytes": 665708,
+          "sha256": "9e9c1934bcf7ab1a8aff04585d498b96fce4d56fea03ab3a6dbb6a6f2de70811"
+        },
+        "initialization_contract": "fixture/source/configuration loading and parser setup; lazy AST compilation is exercised by warmup",
+        "initialization_ms": 251.92192200000002,
+        "iterations": 1,
+        "page": "collection",
+        "peak_rss_bytes": null,
+        "release": true,
+        "request_contract": "fresh Liquid runtimes; styles, platform calls and source diagnostics reset; immutable source/schema/AST caches retained",
+        "response_cache": false,
+        "runtime": {
+          "architecture": "x86_64",
+          "os": "linux",
+          "package_version": "0.26.11"
+        },
+        "samples": [
+          {
+            "css": {
+              "bytes": 320252,
+              "sha256": "8f769ff9d0f07d8a2dea6b6cdba67cb683902f432563d7c5f23340e5a560ca9e"
+            },
+            "elapsed_ms": 349.84341800000004,
+            "html": {
+              "bytes": 665708,
+              "sha256": "9e9c1934bcf7ab1a8aff04585d498b96fce4d56fea03ab3a6dbb6a6f2de70811"
+            }
+          }
+        ],
+        "samples_cpu_ms": null,
+        "samples_ms": [
+          349.84341800000004
+        ],
+        "schema_version": 1,
+        "scope": "page",
+        "theme_sha": "5acd1b6b66c02f61d3216e3adace5dd9e0404fc9",
+        "timer": "std::time::Instant monotonic wall clock",
+        "warmup": 1
+      },
+      "status": {
+        "counts": {
+          "active_activations": 0,
+          "clock_errors": 0,
+          "closed_spans": 202653,
+          "concurrent_span_enters": 0,
+          "dropped_depth": 0,
+          "dropped_sites": 2141,
+          "dropped_sites_by_phase": {
+            "warmup": 2141
+          },
+          "dropped_threads": 0,
+          "dropped_trace_events": 0,
+          "imbalances": 0,
+          "new_spans": 202653,
+          "non_nested_parents": 0,
+          "open_spans": 0,
+          "phase_mismatches": 0,
+          "reentries": 0,
+          "rejected_fields": 0,
+          "suppressed_depth": 0,
+          "threads": 1
+        },
+        "phases": {
+          "initialize": {
+            "closed_spans": 4,
+            "complete": false,
+            "dropped_sites": 0,
+            "entered_balanced": true,
+            "error": 0,
+            "new_spans": 4,
+            "ok": 4,
+            "recorded_calls": 4,
+            "recorded_enters": 4,
+            "recorded_exits": 4,
+            "recorded_sites": 4,
+            "selected": false,
+            "unknown_outcome": 0
+          },
+          "measured": {
+            "closed_spans": 193595,
+            "complete": true,
+            "dropped_sites": 0,
+            "entered_balanced": true,
+            "error": 0,
+            "new_spans": 193595,
+            "ok": 70904,
+            "recorded_calls": 193595,
+            "recorded_enters": 193595,
+            "recorded_exits": 193595,
+            "recorded_sites": 36282,
+            "selected": true,
+            "unknown_outcome": 122691
+          },
+          "warmup": {
+            "closed_spans": 9054,
+            "complete": false,
+            "dropped_sites": 2141,
+            "entered_balanced": true,
+            "error": 0,
+            "new_spans": 9054,
+            "ok": 6913,
+            "recorded_calls": 6913,
+            "recorded_enters": 6913,
+            "recorded_exits": 6913,
+            "recorded_sites": 508,
+            "selected": false,
+            "unknown_outcome": 0
+          }
+        },
+        "limits": {
+          "auxiliary_sites": 512,
+          "depth": 64,
+          "label_bytes": 96,
+          "sites": 65536,
+          "threads": 16,
+          "trace_events": 32000
+        },
+        "complete": false,
+        "exclusive_valid": false,
+        "selected_phases_complete": true,
+        "operation_succeeded": true
+      },
+      "measured_request_calls": 1,
+      "top_measured_sites": [
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 2226,
+            "byte": 1018,
+            "column": 7,
+            "line": 26
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 12385112,
+          "exits": 1,
+          "fields": {
+            "kind": "block",
+            "name": "paginate"
+          },
+          "found": 0,
+          "id": 35740,
+          "inclusive_active_wall_ns": 27847236,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 35691,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 222,
+            "byte": 2089,
+            "column": 7,
+            "line": 60
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 6002959,
+          "exits": 1,
+          "fields": {
+            "kind": "block",
+            "name": "paginate"
+          },
+          "found": 0,
+          "id": 5287,
+          "inclusive_active_wall_ns": 214998840,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 1845,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 1,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {
+            "depth": 1
+          },
+          "delegated": 1,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 5729443,
+          "exits": 2,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 2,
+          "id": 35749,
+          "inclusive_active_wall_ns": 5732261,
+          "missing": 0,
+          "ok": 0,
+          "owned": 1,
+          "parent_id": 35740,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 2
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 4693793,
+          "exits": 1,
+          "fields": {
+            "kind": "block"
+          },
+          "found": 0,
+          "id": 2041,
+          "inclusive_active_wall_ns": 20130378,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 2022,
+          "phase": "measured",
+          "span": "horizon.content_for",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 4,
+          "closed": 4,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 4,
+          "error": 0,
+          "exclusive_active_wall_ns": 3251736,
+          "exits": 4,
+          "fields": {
+            "kind": "content_for"
+          },
+          "found": 0,
+          "id": 2028,
+          "inclusive_active_wall_ns": 3251736,
+          "missing": 0,
+          "ok": 0,
+          "owned": 0,
+          "parent_id": 2022,
+          "phase": "measured",
+          "span": "horizon.keyword_own",
+          "target": "horizon::profile",
+          "unknown_outcome": 4
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "depth": 2
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 3057458,
+          "exits": 1,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 1,
+          "id": 35745,
+          "inclusive_active_wall_ns": 3057458,
+          "missing": 0,
+          "ok": 0,
+          "owned": 1,
+          "parent_id": 35744,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 1
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 2230,
+            "byte": 57,
+            "column": 58,
+            "line": 1
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 3047720,
+          "exits": 1,
+          "fields": {
+            "name": "default"
+          },
+          "found": 0,
+          "id": 35705,
+          "inclusive_active_wall_ns": 3057513,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 35696,
+          "phase": "measured",
+          "span": "liquid.filter",
+          "target": "liquid::profile::filter",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 6,
+          "closed": 6,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 6,
+          "error": 0,
+          "exclusive_active_wall_ns": 2709692,
+          "exits": 6,
+          "fields": {
+            "kind": "render"
+          },
+          "found": 0,
+          "id": 4512,
+          "inclusive_active_wall_ns": 2709692,
+          "missing": 0,
+          "ok": 0,
+          "owned": 0,
+          "parent_id": 4502,
+          "phase": "measured",
+          "span": "horizon.keyword_own",
+          "target": "horizon::profile",
+          "unknown_outcome": 6
+        },
+        {
+          "borrowed": 0,
+          "calls": 7,
+          "closed": 7,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 7,
+          "error": 0,
+          "exclusive_active_wall_ns": 2640163,
+          "exits": 7,
+          "fields": {
+            "kind": "render"
+          },
+          "found": 0,
+          "id": 3170,
+          "inclusive_active_wall_ns": 2640163,
+          "missing": 0,
+          "ok": 0,
+          "owned": 0,
+          "parent_id": 3160,
+          "phase": "measured",
+          "span": "horizon.keyword_own",
+          "target": "horizon::profile",
+          "unknown_outcome": 7
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 2224,
+            "byte": 3984,
+            "column": 13,
+            "line": 122
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 2118024,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "render"
+          },
+          "found": 0,
+          "id": 35661,
+          "inclusive_active_wall_ns": 33171058,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 35424,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 229,
+            "byte": 11453,
+            "column": 17,
+            "line": 294
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 2108472,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "render"
+          },
+          "found": 0,
+          "id": 3160,
+          "inclusive_active_wall_ns": 5905570,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 3158,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 229,
+            "byte": 19047,
+            "column": 15,
+            "line": 501
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 2086346,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "render"
+          },
+          "found": 0,
+          "id": 4502,
+          "inclusive_active_wall_ns": 5956848,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 4500,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 222,
+            "byte": 1722,
+            "column": 7,
+            "line": 47
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 2005283,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "content_for"
+          },
+          "found": 0,
+          "id": 2022,
+          "inclusive_active_wall_ns": 25424737,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 1845,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 24,
+          "closed": 24,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 24,
+          "error": 0,
+          "exclusive_active_wall_ns": 1621817,
+          "exits": 24,
+          "fields": {
+            "template": "blocks/_product-card"
+          },
+          "found": 0,
+          "id": 5403,
+          "inclusive_active_wall_ns": 200969209,
+          "missing": 0,
+          "ok": 24,
+          "owned": 0,
+          "parent_id": 5398,
+          "phase": "measured",
+          "span": "horizon.block",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 1614858,
+          "exits": 1,
+          "fields": {
+            "template": "blocks/_header-menu"
+          },
+          "found": 0,
+          "id": 20047,
+          "inclusive_active_wall_ns": 9790271,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 20044,
+          "phase": "measured",
+          "span": "horizon.block",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 24,
+          "closed": 24,
+          "coordinates": {
+            "node_count": 54
+          },
+          "delegated": 0,
+          "enters": 24,
+          "error": 0,
+          "exclusive_active_wall_ns": 1159190,
+          "exits": 24,
+          "fields": {},
+          "found": 0,
+          "id": 8638,
+          "inclusive_active_wall_ns": 40965366,
+          "missing": 0,
+          "ok": 24,
+          "owned": 0,
+          "parent_id": 8637,
+          "phase": "measured",
+          "span": "liquid.template",
+          "target": "liquid::profile::template",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 1113896,
+          "exits": 1,
+          "fields": {},
+          "found": 0,
+          "id": 32768,
+          "inclusive_active_wall_ns": 1126783,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 32767,
+          "phase": "measured",
+          "span": "liquid.output",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 144,
+          "closed": 144,
+          "coordinates": {
+            "node_count": 7
+          },
+          "delegated": 0,
+          "enters": 144,
+          "error": 0,
+          "exclusive_active_wall_ns": 885361,
+          "exits": 144,
+          "fields": {},
+          "found": 0,
+          "id": 6362,
+          "inclusive_active_wall_ns": 17208556,
+          "missing": 0,
+          "ok": 144,
+          "owned": 0,
+          "parent_id": 6351,
+          "phase": "measured",
+          "span": "liquid.template",
+          "target": "liquid::profile::template",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 24,
+          "closed": 24,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 24,
+          "error": 0,
+          "exclusive_active_wall_ns": 879646,
+          "exits": 24,
+          "fields": {
+            "template": "blocks/price"
+          },
+          "found": 0,
+          "id": 7860,
+          "inclusive_active_wall_ns": 34299161,
+          "missing": 0,
+          "ok": 24,
+          "owned": 0,
+          "parent_id": 5436,
+          "phase": "measured",
+          "span": "horizon.block",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 24,
+          "calls": 72,
+          "closed": 72,
+          "coordinates": {
+            "depth": 1
+          },
+          "delegated": 24,
+          "enters": 72,
+          "error": 0,
+          "exclusive_active_wall_ns": 799092,
+          "exits": 72,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 72,
+          "id": 8630,
+          "inclusive_active_wall_ns": 828764,
+          "missing": 0,
+          "ok": 0,
+          "owned": 48,
+          "parent_id": 8629,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 72
+        }
+      ]
+    },
+    {
+      "case": "harbor-100-en-default-product",
+      "profile": {
+        "bytes": 45104200,
+        "sha256": "f5233b26a676cf2bbbde581ede55e036629f72d264bdb17469c026633eed7a06"
+      },
+      "benchmark": {
+        "benchmark_mode": "direct",
+        "build_profile": "release",
+        "correctness_verified": true,
+        "css": {
+          "bytes": 301127,
+          "sha256": "9e6356dcb05a93f34bcadd6d16df104453c23de21c95af8a5efbd61d0555543a"
+        },
+        "diagnostics": {
+          "configuration": {
+            "parsing": "strict",
+            "strict_filters": true,
+            "strict_variables": false
+          },
+          "engine": "liquid-rust",
+          "error": null,
+          "fixture_sha256": "9d95ac445d7ddf8f4b67684f8c05ca4bda19d7a12d125dc7ed0e7a49f68f758e",
+          "locale": "en",
+          "page": "product",
+          "page_type": "product",
+          "platform_calls": {
+            "asset_url": 90,
+            "color_brightness": 36,
+            "color_contrast": 6,
+            "color_darken": 4,
+            "color_lighten": 3,
+            "content_for": 17,
+            "date": 1,
+            "date:fixture_clock": 1,
+            "doc": 226,
+            "escape": 46,
+            "font_face": 6,
+            "font_modify": 12,
+            "form": 6,
+            "handleize": 2,
+            "image_tag": 10,
+            "image_url": 14,
+            "inline_asset_content": 32,
+            "item_count_for_variant": 3,
+            "json": 3,
+            "link_to": 1,
+            "money": 30,
+            "money_with_currency": 2,
+            "money_without_currency": 1,
+            "paginate": 1,
+            "payment_button": 1,
+            "payment_terms": 2,
+            "preload_tag": 1,
+            "render": 245,
+            "schema": 34,
+            "sections": 2,
+            "standard_event_data": 6,
+            "structured_data": 1,
+            "style": 17,
+            "stylesheet": 139,
+            "stylesheet_tag": 2,
+            "t": 96
+          },
+          "platform_contract": {
+            "cart_item_index": "derived zero-based index",
+            "clock": "2026-01-15 12:00:00 +0000",
+            "events": "synthetic product/collection/cart view JSON",
+            "focal_point": "registered exact numeric xy pairs project at expression evaluation; identical xy objects also match; not arbitrary Drop/filter-element coercion",
+            "font": "configured Inter uses local system Arial",
+            "form_submission": "unsupported",
+            "javascript": "raw inline script once per source; bundling unsupported",
+            "option_value": "declared option shape uses display-name size; explicit size keys retain their values",
+            "optional_variables": "missing optional properties resolve to nil",
+            "pagination": "request current_page with scoped product window",
+            "payment_button": "empty only when fixture explicitly disables service",
+            "payment_terms": "empty only when fixture explicitly disables service",
+            "structured_data": "synthetic Schema.org ProductGroup; not hosted Shopify byte output"
+          },
+          "request_id": 396026806536210397,
+          "scenario_id": "harbor-100-en-default",
+          "sections_rendered": [
+            "main",
+            "product_recommendations_qggXJq"
+          ],
+          "sources": [
+            "sections/product-information.liquid",
+            "blocks/_product-media-gallery.liquid",
+            "snippets/product-media-gallery-content.liquid",
+            "snippets/util-product-media-sizes-attr.liquid",
+            "snippets/measure-header-heights.liquid",
+            "snippets/spacing-style.liquid",
+            "snippets/product-media.liquid",
+            "snippets/deferred-media-product-model-styles.liquid",
+            "snippets/slideshow-slide.liquid",
+            "snippets/slideshow-styles.liquid",
+            "snippets/slideshow.liquid",
+            "snippets/product-media-container-styles.liquid",
+            "snippets/product-media-gallery-content-styles.liquid",
+            "blocks/_product-details.liquid",
+            "blocks/group.liquid",
+            "blocks/text.liquid",
+            "snippets/text.liquid",
+            "snippets/text-block-styles.liquid",
+            "snippets/spacing-padding.liquid",
+            "snippets/typography-style.liquid",
+            "blocks/price.liquid",
+            "snippets/price.liquid",
+            "snippets/price-styles.liquid",
+            "snippets/payment-terms-styles.liquid",
+            "snippets/group.liquid",
+            "snippets/contrast-override.liquid",
+            "snippets/border-override.liquid",
+            "snippets/size-style.liquid",
+            "snippets/background-media.liquid",
+            "snippets/video-background-styles.liquid",
+            "snippets/layout-panel-style.liquid",
+            "snippets/gap-style.liquid",
+            "blocks/_divider.liquid",
+            "snippets/divider.liquid",
+            "blocks/variant-picker.liquid",
+            "snippets/variant-main-picker.liquid",
+            "snippets/strikethrough-variant.liquid",
+            "snippets/swatch-styles.liquid",
+            "snippets/variant-picker-styles.liquid",
+            "blocks/buy-buttons.liquid",
+            "snippets/theme-drawer-styles.liquid",
+            "blocks/quantity.liquid",
+            "snippets/quantity-selector.liquid",
+            "snippets/quantity-selector-styles.liquid",
+            "blocks/add-to-cart.liquid",
+            "snippets/button-custom-styles.liquid",
+            "snippets/add-to-cart-button-styles.liquid",
+            "snippets/fly-to-cart-styles.liquid",
+            "snippets/add-to-cart-button.liquid",
+            "blocks/accelerated-checkout.liquid",
+            "snippets/buy-buttons-styles.liquid",
+            "blocks/disclosures.liquid",
+            "snippets/accordion-styles.liquid",
+            "snippets/deferred-media-video-styles.liquid",
+            "snippets/product-information-content.liquid",
+            "snippets/skip-to-content-link.liquid",
+            "sections/product-recommendations.liquid",
+            "snippets/quick-add-styles.liquid",
+            "snippets/quick-add-modal-styles.liquid",
+            "snippets/dialog-styles.liquid",
+            "snippets/product-badges-styles.liquid",
+            "snippets/resource-list-styles.liquid",
+            "snippets/product-recommendations-styles.liquid",
+            "layout/theme.liquid",
+            "snippets/view-transition-opt-in.liquid",
+            "snippets/meta-tags.liquid",
+            "snippets/stylesheets.liquid",
+            "snippets/card-hover-effect-styles.liquid",
+            "snippets/fonts.liquid",
+            "snippets/scripts.liquid",
+            "snippets/theme-styles-variables.liquid",
+            "snippets/brightness-opacities.liquid",
+            "snippets/color-palette.liquid",
+            "snippets/util-palette-hover-shift.liquid",
+            "snippets/chat-drawer.liquid",
+            "sections/header-announcements.liquid",
+            "blocks/_announcement.liquid",
+            "sections/header.liquid",
+            "blocks/_header-logo.liquid",
+            "snippets/image.liquid",
+            "blocks/_header-menu.liquid",
+            "snippets/icon.liquid",
+            "snippets/submenu-font-styles.liquid",
+            "snippets/mega-menu-list.liquid",
+            "snippets/util-mega-menu-img-sizes-attr.liquid",
+            "snippets/menu-font-styles.liquid",
+            "snippets/overflow-list.liquid",
+            "snippets/header-drawer.liquid",
+            "snippets/summary-icon-styles.liquid",
+            "snippets/localization-form.liquid",
+            "snippets/header-actions.liquid",
+            "snippets/cart-bubble.liquid",
+            "snippets/search.liquid",
+            "snippets/header-row.liquid",
+            "sections/footer.liquid",
+            "blocks/email-signup.liquid",
+            "snippets/input-custom-styles.liquid",
+            "blocks/menu.liquid",
+            "snippets/accordion-custom-component.liquid",
+            "sections/footer-utilities.liquid",
+            "blocks/footer-copyright.liquid",
+            "blocks/footer-policy-list.liquid",
+            "blocks/social-links.liquid",
+            "snippets/cart-drawer.liquid",
+            "snippets/cart-products.liquid",
+            "snippets/cart-typography-styles.liquid",
+            "snippets/text-component-shimmer-styles.liquid",
+            "snippets/theme-drawer-header.liquid",
+            "snippets/cart-disclosure-tooltip.liquid",
+            "snippets/volume-pricing-info.liquid",
+            "snippets/cart-summary.liquid",
+            "snippets/tax-info.liquid",
+            "snippets/cart-items-component.liquid",
+            "snippets/theme-drawer.liquid",
+            "snippets/search-modal.liquid",
+            "snippets/pills-styles.liquid",
+            "snippets/predictive-search-styles.liquid",
+            "snippets/predictive-search-empty-state.liquid",
+            "snippets/predictive-search-products-list.liquid",
+            "snippets/resource-card.liquid",
+            "snippets/quick-add-modal.liquid"
+          ],
+          "store_schema_version": 1,
+          "theme": {
+            "block_overrides": {
+              "button_H9gpTf": {
+                "settings": {
+                  "label": "Shop field essentials",
+                  "link": "/collections/all",
+                  "style_class": "button"
+                }
+              },
+              "text_YLPk4p": {
+                "settings": {
+                  "text": "<p>Equip your everyday adventure</p>",
+                  "text_color": "#000000"
+                }
+              }
+            },
+            "page_overrides": {
+              "collection": {
+                "section_overrides": {
+                  "main": {
+                    "settings": {
+                      "enable_infinite_scroll": false,
+                      "product_grid_width": "centered",
+                      "products_per_page": 24
+                    }
+                  }
+                }
+              },
+              "collection_last": {
+                "section_overrides": {
+                  "main": {
+                    "settings": {
+                      "enable_infinite_scroll": false,
+                      "product_grid_width": "centered",
+                      "products_per_page": 24
+                    }
+                  }
+                }
+              },
+              "collection_page_2": {
+                "section_overrides": {
+                  "main": {
+                    "settings": {
+                      "enable_infinite_scroll": false,
+                      "product_grid_width": "centered",
+                      "products_per_page": 24
+                    }
+                  }
+                }
+              },
+              "product": {
+                "block_overrides": {
+                  "variant_picker_R3rGDr": {
+                    "settings": {
+                      "show_swatches": false,
+                      "variant_style": "buttons"
+                    }
+                  }
+                }
+              }
+            },
+            "repository": "https://github.com/Shopify/horizon",
+            "section_overrides": {
+              "hero_jVaWmY": {
+                "settings": {
+                  "background_color": "#EEF1EA",
+                  "toggle_overlay": false
+                }
+              },
+              "product_list_fa6P9H": {
+                "settings": {
+                  "collection": "all",
+                  "max_products": 4
+                }
+              }
+            },
+            "settings": {
+              "color_palette": {
+                "background": "#ffffff",
+                "color1": "#333333",
+                "color2": "#EEF1EA",
+                "color3": "#DFDFDF",
+                "foreground": "#000000"
+              },
+              "page_width": "narrow"
+            },
+            "sha": "5acd1b6b66c02f61d3216e3adace5dd9e0404fc9"
+          },
+          "theme_sha": "5acd1b6b66c02f61d3216e3adace5dd9e0404fc9"
+        },
+        "engine": "liquid-rust",
+        "fixture_sha256": "9d95ac445d7ddf8f4b67684f8c05ca4bda19d7a12d125dc7ed0e7a49f68f758e",
+        "html": {
+          "bytes": 467609,
+          "sha256": "19c9417cf0ebaa7e0df40df546fe7c8dccc986bad30a1c7b2dee2def3dc38b36"
+        },
+        "initialization_contract": "fixture/source/configuration loading and parser setup; lazy AST compilation is exercised by warmup",
+        "initialization_ms": 215.131079,
+        "iterations": 1,
+        "page": "product",
+        "peak_rss_bytes": null,
+        "release": true,
+        "request_contract": "fresh Liquid runtimes; styles, platform calls and source diagnostics reset; immutable source/schema/AST caches retained",
+        "response_cache": false,
+        "runtime": {
+          "architecture": "x86_64",
+          "os": "linux",
+          "package_version": "0.26.11"
+        },
+        "samples": [
+          {
+            "css": {
+              "bytes": 301127,
+              "sha256": "9e6356dcb05a93f34bcadd6d16df104453c23de21c95af8a5efbd61d0555543a"
+            },
+            "elapsed_ms": 130.140119,
+            "html": {
+              "bytes": 467609,
+              "sha256": "19c9417cf0ebaa7e0df40df546fe7c8dccc986bad30a1c7b2dee2def3dc38b36"
+            }
+          }
+        ],
+        "samples_cpu_ms": null,
+        "samples_ms": [
+          130.140119
+        ],
+        "schema_version": 1,
+        "scope": "page",
+        "theme_sha": "5acd1b6b66c02f61d3216e3adace5dd9e0404fc9",
+        "timer": "std::time::Instant monotonic wall clock",
+        "warmup": 1
+      },
+      "status": {
+        "counts": {
+          "active_activations": 0,
+          "clock_errors": 0,
+          "closed_spans": 61492,
+          "concurrent_span_enters": 0,
+          "dropped_depth": 0,
+          "dropped_sites": 2087,
+          "dropped_sites_by_phase": {
+            "warmup": 2087
+          },
+          "dropped_threads": 0,
+          "dropped_trace_events": 0,
+          "imbalances": 0,
+          "new_spans": 61492,
+          "non_nested_parents": 0,
+          "open_spans": 0,
+          "phase_mismatches": 0,
+          "reentries": 0,
+          "rejected_fields": 0,
+          "suppressed_depth": 0,
+          "threads": 1
+        },
+        "phases": {
+          "initialize": {
+            "closed_spans": 4,
+            "complete": false,
+            "dropped_sites": 0,
+            "entered_balanced": true,
+            "error": 0,
+            "new_spans": 4,
+            "ok": 4,
+            "recorded_calls": 4,
+            "recorded_enters": 4,
+            "recorded_exits": 4,
+            "recorded_sites": 4,
+            "selected": false,
+            "unknown_outcome": 0
+          },
+          "measured": {
+            "closed_spans": 58702,
+            "complete": true,
+            "dropped_sites": 0,
+            "entered_balanced": true,
+            "error": 0,
+            "new_spans": 58702,
+            "ok": 21493,
+            "recorded_calls": 58702,
+            "recorded_enters": 58702,
+            "recorded_exits": 58702,
+            "recorded_sites": 37988,
+            "selected": true,
+            "unknown_outcome": 37209
+          },
+          "warmup": {
+            "closed_spans": 2786,
+            "complete": false,
+            "dropped_sites": 2087,
+            "entered_balanced": true,
+            "error": 0,
+            "new_spans": 2786,
+            "ok": 699,
+            "recorded_calls": 699,
+            "recorded_enters": 699,
+            "recorded_exits": 699,
+            "recorded_sites": 508,
+            "selected": false,
+            "unknown_outcome": 0
+          }
+        },
+        "limits": {
+          "auxiliary_sites": 512,
+          "depth": 64,
+          "label_bytes": 96,
+          "sites": 65536,
+          "threads": 16,
+          "trace_events": 32000
+        },
+        "complete": false,
+        "exclusive_valid": false,
+        "selected_phases_complete": true,
+        "operation_succeeded": true
+      },
+      "measured_request_calls": 1,
+      "top_measured_sites": [
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 2267,
+            "byte": 1018,
+            "column": 7,
+            "line": 26
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 10175744,
+          "exits": 1,
+          "fields": {
+            "kind": "block",
+            "name": "paginate"
+          },
+          "found": 0,
+          "id": 37477,
+          "inclusive_active_wall_ns": 24265698,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 37428,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 1,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {
+            "depth": 1
+          },
+          "delegated": 1,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 4355106,
+          "exits": 2,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 2,
+          "id": 37486,
+          "inclusive_active_wall_ns": 4358584,
+          "missing": 0,
+          "ok": 0,
+          "owned": 1,
+          "parent_id": 37477,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 2
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "depth": 2
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 4265410,
+          "exits": 1,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 1,
+          "id": 37482,
+          "inclusive_active_wall_ns": 4265410,
+          "missing": 0,
+          "ok": 0,
+          "owned": 1,
+          "parent_id": 37481,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 1
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 2271,
+            "byte": 57,
+            "column": 58,
+            "line": 1
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 4019828,
+          "exits": 1,
+          "fields": {
+            "name": "default"
+          },
+          "found": 0,
+          "id": 37442,
+          "inclusive_active_wall_ns": 4029167,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 37433,
+          "phase": "measured",
+          "span": "liquid.filter",
+          "target": "liquid::profile::filter",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 2264,
+            "byte": 3984,
+            "column": 13,
+            "line": 122
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 2106666,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "render"
+          },
+          "found": 0,
+          "id": 37398,
+          "inclusive_active_wall_ns": 30550234,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 37161,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "selectors": 0
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 1163387,
+          "exits": 1,
+          "fields": {
+            "mode": "optional"
+          },
+          "found": 0,
+          "id": 32768,
+          "inclusive_active_wall_ns": 1163387,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 32767,
+          "phase": "measured",
+          "span": "liquid.selector",
+          "target": "liquid::profile::lookup",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 1532,
+            "byte": 583,
+            "column": 7,
+            "line": 21
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 503962,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "render"
+          },
+          "found": 0,
+          "id": 24259,
+          "inclusive_active_wall_ns": 5895946,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 24245,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 453988,
+          "exits": 2,
+          "fields": {
+            "kind": "materialize"
+          },
+          "found": 0,
+          "id": 31916,
+          "inclusive_active_wall_ns": 462058,
+          "missing": 0,
+          "ok": 2,
+          "owned": 0,
+          "parent_id": 31912,
+          "phase": "measured",
+          "span": "horizon.settings",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 1,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 432513,
+          "exits": 1,
+          "fields": {},
+          "found": 0,
+          "id": 16384,
+          "inclusive_active_wall_ns": 433771,
+          "missing": 0,
+          "ok": 0,
+          "owned": 0,
+          "parent_id": 16377,
+          "phase": "measured",
+          "span": "liquid.project",
+          "target": "liquid::profile::project",
+          "unknown_outcome": 1
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 404576,
+          "exits": 2,
+          "fields": {
+            "template": "blocks/menu"
+          },
+          "found": 0,
+          "id": 31912,
+          "inclusive_active_wall_ns": 5762667,
+          "missing": 0,
+          "ok": 2,
+          "owned": 0,
+          "parent_id": 29620,
+          "phase": "measured",
+          "span": "horizon.block",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 381075,
+          "exits": 1,
+          "fields": {
+            "template": "blocks/_header-menu"
+          },
+          "found": 0,
+          "id": 24198,
+          "inclusive_active_wall_ns": 6911333,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 24195,
+          "phase": "measured",
+          "span": "horizon.block",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "depth": 1
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 354404,
+          "exits": 1,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 1,
+          "id": 24993,
+          "inclusive_active_wall_ns": 354404,
+          "missing": 0,
+          "ok": 0,
+          "owned": 1,
+          "parent_id": 24992,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 1
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {
+            "buffer_id": 2011,
+            "byte": 0,
+            "column": 1,
+            "line": 1
+          },
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 353273,
+          "exits": 2,
+          "fields": {
+            "kind": "tag",
+            "name": "assign"
+          },
+          "found": 0,
+          "id": 31921,
+          "inclusive_active_wall_ns": 379062,
+          "missing": 0,
+          "ok": 2,
+          "owned": 0,
+          "parent_id": 31920,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {
+            "depth": 1
+          },
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 337259,
+          "exits": 2,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 2,
+          "id": 31969,
+          "inclusive_active_wall_ns": 337259,
+          "missing": 0,
+          "ok": 0,
+          "owned": 2,
+          "parent_id": 31968,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 2
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 1731,
+            "byte": 0,
+            "column": 1,
+            "line": 1
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 337004,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "assign"
+          },
+          "found": 0,
+          "id": 24295,
+          "inclusive_active_wall_ns": 349413,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 24294,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {
+            "depth": 2
+          },
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 333382,
+          "exits": 2,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 2,
+          "id": 31937,
+          "inclusive_active_wall_ns": 333382,
+          "missing": 0,
+          "ok": 0,
+          "owned": 2,
+          "parent_id": 31936,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 2
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 332030,
+          "exits": 1,
+          "fields": {
+            "template": "blocks/_header-menu"
+          },
+          "found": 0,
+          "id": 21784,
+          "inclusive_active_wall_ns": 7223235,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 21781,
+          "phase": "measured",
+          "span": "horizon.block",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 1555,
+            "byte": 0,
+            "column": 1,
+            "line": 1
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 329469,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "assign"
+          },
+          "found": 0,
+          "id": 21837,
+          "inclusive_active_wall_ns": 341683,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 21836,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 293610,
+          "exits": 1,
+          "fields": {
+            "kind": "materialize"
+          },
+          "found": 0,
+          "id": 21788,
+          "inclusive_active_wall_ns": 306195,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 21784,
+          "phase": "measured",
+          "span": "horizon.settings",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 293286,
+          "exits": 1,
+          "fields": {
+            "kind": "materialize"
+          },
+          "found": 0,
+          "id": 26114,
+          "inclusive_active_wall_ns": 305407,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 26110,
+          "phase": "measured",
+          "span": "horizon.settings",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        }
+      ]
+    },
+    {
+      "case": "harbor-4-pl-wide-index",
+      "profile": {
+        "bytes": 40721197,
+        "sha256": "d8a868dbbb076fddbe94ddbbbe77b3e39aedc33ef39530687287990d3a547c96"
+      },
+      "benchmark": {
+        "benchmark_mode": "direct",
+        "build_profile": "release",
+        "correctness_verified": true,
+        "css": {
+          "bytes": 286852,
+          "sha256": "1aae40b5b410a8cf629b7a876def02fde9adfbfeb81432af323dee1a7fbc63d1"
+        },
+        "diagnostics": {
+          "configuration": {
+            "parsing": "strict",
+            "strict_filters": true,
+            "strict_variables": false
+          },
+          "engine": "liquid-rust",
+          "error": null,
+          "fixture_sha256": "3bdc7780fd042ba5001de8ac3818a66dbb3e0a2615915725e0ab08683738ec5e",
+          "locale": "pl",
+          "page": "index",
+          "page_type": "index",
+          "platform_calls": {
+            "asset_url": 86,
+            "color_brightness": 37,
+            "color_contrast": 6,
+            "color_darken": 4,
+            "color_lighten": 3,
+            "content_for": 20,
+            "date": 1,
+            "date:fixture_clock": 1,
+            "doc": 324,
+            "escape": 27,
+            "font_face": 6,
+            "font_modify": 12,
+            "form": 6,
+            "image_tag": 10,
+            "image_url": 16,
+            "inline_asset_content": 29,
+            "item_count_for_variant": 2,
+            "json": 2,
+            "link_to": 1,
+            "md5": 4,
+            "money": 38,
+            "money_with_currency": 2,
+            "paginate": 2,
+            "payment_terms": 1,
+            "placeholder_svg_tag": 2,
+            "preload_tag": 1,
+            "render": 359,
+            "schema": 41,
+            "sections": 2,
+            "standard_event_data": 9,
+            "style": 15,
+            "stylesheet": 207,
+            "stylesheet_tag": 2,
+            "t": 91
+          },
+          "platform_contract": {
+            "cart_item_index": "derived zero-based index",
+            "clock": "2026-01-15 12:00:00 +0000",
+            "events": "synthetic product/collection/cart view JSON",
+            "focal_point": "registered exact numeric xy pairs project at expression evaluation; identical xy objects also match; not arbitrary Drop/filter-element coercion",
+            "font": "configured Inter uses local system Arial",
+            "form_submission": "unsupported",
+            "javascript": "raw inline script once per source; bundling unsupported",
+            "option_value": "declared option shape uses display-name size; explicit size keys retain their values",
+            "optional_variables": "missing optional properties resolve to nil",
+            "pagination": "request current_page with scoped product window",
+            "payment_button": "empty only when fixture explicitly disables service",
+            "payment_terms": "empty only when fixture explicitly disables service",
+            "structured_data": "synthetic Schema.org ProductGroup; not hosted Shopify byte output"
+          },
+          "request_id": 957599671578708018,
+          "scenario_id": "harbor-4-pl-wide",
+          "sections_rendered": [
+            "hero_jVaWmY",
+            "product_list_fa6P9H"
+          ],
+          "sources": [
+            "sections/hero.liquid",
+            "snippets/contrast-override.liquid",
+            "snippets/brightness-opacities.liquid",
+            "snippets/measure-header-heights.liquid",
+            "snippets/spacing-style.liquid",
+            "snippets/layout-panel-style.liquid",
+            "snippets/gap-style.liquid",
+            "blocks/text.liquid",
+            "snippets/text.liquid",
+            "snippets/text-block-styles.liquid",
+            "snippets/spacing-padding.liquid",
+            "snippets/typography-style.liquid",
+            "blocks/button.liquid",
+            "snippets/button.liquid",
+            "snippets/button-custom-styles.liquid",
+            "snippets/size-style.liquid",
+            "sections/product-list.liquid",
+            "blocks/_product-list-content.liquid",
+            "blocks/_product-list-text.liquid",
+            "blocks/_product-list-button.liquid",
+            "snippets/group.liquid",
+            "snippets/border-override.liquid",
+            "snippets/background-media.liquid",
+            "snippets/video-background-styles.liquid",
+            "blocks/_product-card.liquid",
+            "blocks/_product-card-gallery.liquid",
+            "snippets/quick-add.liquid",
+            "snippets/fly-to-cart-styles.liquid",
+            "snippets/add-to-cart-button.liquid",
+            "snippets/add-to-cart-button-styles.liquid",
+            "snippets/checkbox-styles.liquid",
+            "snippets/price-styles.liquid",
+            "snippets/quick-add-styles.liquid",
+            "snippets/video-placeholder-styles.liquid",
+            "snippets/deferred-media-product-model-styles.liquid",
+            "snippets/card-gallery.liquid",
+            "snippets/product-media.liquid",
+            "snippets/slideshow-styles.liquid",
+            "snippets/product-media-container-styles.liquid",
+            "snippets/product-card-gallery-zoom-details-styles.liquid",
+            "snippets/product-badges-styles.liquid",
+            "blocks/product-title.liquid",
+            "blocks/price.liquid",
+            "snippets/price.liquid",
+            "snippets/payment-terms-styles.liquid",
+            "snippets/product-card.liquid",
+            "snippets/product-card-styles.liquid",
+            "snippets/quantity-selector-styles.liquid",
+            "snippets/buy-buttons-styles.liquid",
+            "snippets/gift-card-recipient-form-styles.liquid",
+            "snippets/quick-add-modal-styles.liquid",
+            "snippets/dialog-styles.liquid",
+            "snippets/swatch-styles.liquid",
+            "snippets/variant-picker-styles.liquid",
+            "snippets/resource-list.liquid",
+            "snippets/resource-list-styles.liquid",
+            "layout/theme.liquid",
+            "snippets/view-transition-opt-in.liquid",
+            "snippets/meta-tags.liquid",
+            "snippets/stylesheets.liquid",
+            "snippets/card-hover-effect-styles.liquid",
+            "snippets/fonts.liquid",
+            "snippets/scripts.liquid",
+            "snippets/theme-styles-variables.liquid",
+            "snippets/color-palette.liquid",
+            "snippets/util-palette-hover-shift.liquid",
+            "snippets/skip-to-content-link.liquid",
+            "snippets/chat-drawer.liquid",
+            "sections/header-announcements.liquid",
+            "blocks/_announcement.liquid",
+            "sections/header.liquid",
+            "blocks/_header-logo.liquid",
+            "snippets/image.liquid",
+            "blocks/_header-menu.liquid",
+            "snippets/icon.liquid",
+            "snippets/submenu-font-styles.liquid",
+            "snippets/mega-menu-list.liquid",
+            "snippets/util-mega-menu-img-sizes-attr.liquid",
+            "snippets/menu-font-styles.liquid",
+            "snippets/overflow-list.liquid",
+            "snippets/header-drawer.liquid",
+            "snippets/summary-icon-styles.liquid",
+            "snippets/localization-form.liquid",
+            "snippets/header-actions.liquid",
+            "snippets/cart-bubble.liquid",
+            "snippets/search.liquid",
+            "snippets/header-row.liquid",
+            "sections/footer.liquid",
+            "blocks/group.liquid",
+            "blocks/email-signup.liquid",
+            "snippets/input-custom-styles.liquid",
+            "blocks/menu.liquid",
+            "snippets/accordion-custom-component.liquid",
+            "sections/footer-utilities.liquid",
+            "blocks/footer-copyright.liquid",
+            "blocks/footer-policy-list.liquid",
+            "blocks/social-links.liquid",
+            "snippets/cart-drawer.liquid",
+            "snippets/cart-products.liquid",
+            "snippets/cart-typography-styles.liquid",
+            "snippets/text-component-shimmer-styles.liquid",
+            "snippets/theme-drawer-header.liquid",
+            "snippets/cart-disclosure-tooltip.liquid",
+            "snippets/volume-pricing-info.liquid",
+            "snippets/quantity-selector.liquid",
+            "snippets/cart-summary.liquid",
+            "snippets/tax-info.liquid",
+            "snippets/cart-items-component.liquid",
+            "snippets/theme-drawer.liquid",
+            "snippets/theme-drawer-styles.liquid",
+            "snippets/search-modal.liquid",
+            "snippets/pills-styles.liquid",
+            "snippets/predictive-search-styles.liquid",
+            "snippets/predictive-search-empty-state.liquid",
+            "snippets/predictive-search-products-list.liquid",
+            "snippets/resource-card.liquid",
+            "snippets/quick-add-modal.liquid",
+            "snippets/product-media-gallery-content-styles.liquid"
+          ],
+          "store_schema_version": 1,
+          "theme": {
+            "block_overrides": {
+              "button_H9gpTf": {
+                "settings": {
+                  "label": "Shop field essentials",
+                  "link": "/collections/all",
+                  "style_class": "button"
+                }
+              },
+              "text_YLPk4p": {
+                "settings": {
+                  "text": "<p>Equip your everyday adventure</p>",
+                  "text_color": "#000000"
+                }
+              }
+            },
+            "page_overrides": {
+              "collection": {
+                "section_overrides": {
+                  "main": {
+                    "settings": {
+                      "enable_infinite_scroll": false,
+                      "product_grid_width": "full-width",
+                      "products_per_page": 12
+                    }
+                  }
+                }
+              },
+              "product": {
+                "block_overrides": {
+                  "variant_picker_R3rGDr": {
+                    "settings": {
+                      "show_swatches": false,
+                      "variant_style": "dropdowns"
+                    }
+                  }
+                }
+              }
+            },
+            "repository": "https://github.com/Shopify/horizon",
+            "section_overrides": {
+              "hero_jVaWmY": {
+                "settings": {
+                  "background_color": "#EEF1EA",
+                  "toggle_overlay": false
+                }
+              },
+              "product_list_fa6P9H": {
+                "settings": {
+                  "collection": "all",
+                  "max_products": 4
+                }
+              }
+            },
+            "settings": {
+              "color_palette": {
+                "background": "#ffffff",
+                "color1": "#333333",
+                "color2": "#EEF1EA",
+                "color3": "#DFDFDF",
+                "foreground": "#000000"
+              },
+              "page_width": "wide"
+            },
+            "sha": "5acd1b6b66c02f61d3216e3adace5dd9e0404fc9"
+          },
+          "theme_sha": "5acd1b6b66c02f61d3216e3adace5dd9e0404fc9"
+        },
+        "engine": "liquid-rust",
+        "fixture_sha256": "3bdc7780fd042ba5001de8ac3818a66dbb3e0a2615915725e0ab08683738ec5e",
+        "html": {
+          "bytes": 447136,
+          "sha256": "10dc201108cf44bc1c93e3967cad33b0eb5e2f5cdc58c854c31b1c6e24aa5d69"
+        },
+        "initialization_contract": "fixture/source/configuration loading and parser setup; lazy AST compilation is exercised by warmup",
+        "initialization_ms": 21.887878,
+        "iterations": 1,
+        "page": "index",
+        "peak_rss_bytes": null,
+        "release": true,
+        "request_contract": "fresh Liquid runtimes; styles, platform calls and source diagnostics reset; immutable source/schema/AST caches retained",
+        "response_cache": false,
+        "runtime": {
+          "architecture": "x86_64",
+          "os": "linux",
+          "package_version": "0.26.11"
+        },
+        "samples": [
+          {
+            "css": {
+              "bytes": 286852,
+              "sha256": "1aae40b5b410a8cf629b7a876def02fde9adfbfeb81432af323dee1a7fbc63d1"
+            },
+            "elapsed_ms": 123.907094,
+            "html": {
+              "bytes": 447136,
+              "sha256": "10dc201108cf44bc1c93e3967cad33b0eb5e2f5cdc58c854c31b1c6e24aa5d69"
+            }
+          }
+        ],
+        "samples_cpu_ms": null,
+        "samples_ms": [
+          123.907094
+        ],
+        "schema_version": 1,
+        "scope": "page",
+        "theme_sha": "5acd1b6b66c02f61d3216e3adace5dd9e0404fc9",
+        "timer": "std::time::Instant monotonic wall clock",
+        "warmup": 1
+      },
+      "status": {
+        "counts": {
+          "active_activations": 0,
+          "clock_errors": 0,
+          "closed_spans": 70360,
+          "concurrent_span_enters": 0,
+          "dropped_depth": 0,
+          "dropped_sites": 1684,
+          "dropped_sites_by_phase": {
+            "warmup": 1684
+          },
+          "dropped_threads": 0,
+          "dropped_trace_events": 0,
+          "imbalances": 0,
+          "new_spans": 70360,
+          "non_nested_parents": 0,
+          "open_spans": 0,
+          "phase_mismatches": 0,
+          "reentries": 0,
+          "rejected_fields": 0,
+          "suppressed_depth": 0,
+          "threads": 1
+        },
+        "phases": {
+          "initialize": {
+            "closed_spans": 4,
+            "complete": false,
+            "dropped_sites": 0,
+            "entered_balanced": true,
+            "error": 0,
+            "new_spans": 4,
+            "ok": 4,
+            "recorded_calls": 4,
+            "recorded_enters": 4,
+            "recorded_exits": 4,
+            "recorded_sites": 4,
+            "selected": false,
+            "unknown_outcome": 0
+          },
+          "measured": {
+            "closed_spans": 67167,
+            "complete": true,
+            "dropped_sites": 0,
+            "entered_balanced": true,
+            "error": 0,
+            "new_spans": 67167,
+            "ok": 24665,
+            "recorded_calls": 67167,
+            "recorded_enters": 67167,
+            "recorded_exits": 67167,
+            "recorded_sites": 34498,
+            "selected": true,
+            "unknown_outcome": 42502
+          },
+          "warmup": {
+            "closed_spans": 3189,
+            "complete": false,
+            "dropped_sites": 1684,
+            "entered_balanced": true,
+            "error": 0,
+            "new_spans": 3189,
+            "ok": 1505,
+            "recorded_calls": 1505,
+            "recorded_enters": 1505,
+            "recorded_exits": 1505,
+            "recorded_sites": 508,
+            "selected": false,
+            "unknown_outcome": 0
+          }
+        },
+        "limits": {
+          "auxiliary_sites": 512,
+          "depth": 64,
+          "label_bytes": 96,
+          "sites": 65536,
+          "threads": 16,
+          "trace_events": 32000
+        },
+        "complete": false,
+        "exclusive_valid": false,
+        "selected_phases_complete": true,
+        "operation_succeeded": true
+      },
+      "measured_request_calls": 1,
+      "top_measured_sites": [
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 287,
+            "byte": 1014,
+            "column": 7,
+            "line": 32
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 668251,
+          "exits": 1,
+          "fields": {
+            "kind": "block",
+            "name": "paginate"
+          },
+          "found": 0,
+          "id": 4555,
+          "inclusive_active_wall_ns": 31812721,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 4553,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 2136,
+            "byte": 1018,
+            "column": 7,
+            "line": 26
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 511574,
+          "exits": 1,
+          "fields": {
+            "kind": "block",
+            "name": "paginate"
+          },
+          "found": 0,
+          "id": 33956,
+          "inclusive_active_wall_ns": 6816917,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 33907,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 1386,
+            "byte": 0,
+            "column": 1,
+            "line": 1
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 457214,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "assign"
+          },
+          "found": 0,
+          "id": 18302,
+          "inclusive_active_wall_ns": 473097,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 18301,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 440351,
+          "exits": 2,
+          "fields": {
+            "kind": "materialize"
+          },
+          "found": 0,
+          "id": 28395,
+          "inclusive_active_wall_ns": 448540,
+          "missing": 0,
+          "ok": 2,
+          "owned": 0,
+          "parent_id": 28391,
+          "phase": "measured",
+          "span": "horizon.settings",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 1363,
+            "byte": 583,
+            "column": 7,
+            "line": 21
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 437509,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "render"
+          },
+          "found": 0,
+          "id": 20724,
+          "inclusive_active_wall_ns": 5862876,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 20710,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 436236,
+          "exits": 1,
+          "fields": {
+            "kind": "materialize"
+          },
+          "found": 0,
+          "id": 18253,
+          "inclusive_active_wall_ns": 446339,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 18249,
+          "phase": "measured",
+          "span": "horizon.settings",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 381630,
+          "exits": 2,
+          "fields": {
+            "template": "blocks/menu"
+          },
+          "found": 0,
+          "id": 28391,
+          "inclusive_active_wall_ns": 5787179,
+          "missing": 0,
+          "ok": 2,
+          "owned": 0,
+          "parent_id": 26099,
+          "phase": "measured",
+          "span": "horizon.block",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "index": 2
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 361384,
+          "exits": 1,
+          "fields": {
+            "template": "sections/product-list"
+          },
+          "found": 0,
+          "id": 2804,
+          "inclusive_active_wall_ns": 38635049,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 512,
+          "phase": "measured",
+          "span": "horizon.section",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 1366,
+            "byte": 0,
+            "column": 1,
+            "line": 1
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 356159,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "assign"
+          },
+          "found": 0,
+          "id": 18259,
+          "inclusive_active_wall_ns": 373307,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 18258,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "depth": 3
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 351687,
+          "exits": 1,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 1,
+          "id": 18969,
+          "inclusive_active_wall_ns": 351687,
+          "missing": 0,
+          "ok": 0,
+          "owned": 1,
+          "parent_id": 18968,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 1
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {
+            "buffer_id": 1843,
+            "byte": 0,
+            "column": 1,
+            "line": 1
+          },
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 350175,
+          "exits": 2,
+          "fields": {
+            "kind": "tag",
+            "name": "assign"
+          },
+          "found": 0,
+          "id": 28400,
+          "inclusive_active_wall_ns": 376376,
+          "missing": 0,
+          "ok": 2,
+          "owned": 0,
+          "parent_id": 28399,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 1562,
+            "byte": 0,
+            "column": 1,
+            "line": 1
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 343309,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "assign"
+          },
+          "found": 0,
+          "id": 20760,
+          "inclusive_active_wall_ns": 358638,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 20759,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "depth": 1
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 343285,
+          "exits": 1,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 1,
+          "id": 19131,
+          "inclusive_active_wall_ns": 343285,
+          "missing": 0,
+          "ok": 0,
+          "owned": 1,
+          "parent_id": 19130,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 1
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {
+            "depth": 2
+          },
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 340534,
+          "exits": 2,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 2,
+          "id": 28416,
+          "inclusive_active_wall_ns": 340534,
+          "missing": 0,
+          "ok": 0,
+          "owned": 2,
+          "parent_id": 28415,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 2
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "depth": 1
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 339995,
+          "exits": 1,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 1,
+          "id": 21458,
+          "inclusive_active_wall_ns": 339995,
+          "missing": 0,
+          "ok": 0,
+          "owned": 1,
+          "parent_id": 21457,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 1
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 339456,
+          "exits": 1,
+          "fields": {
+            "mode": "page"
+          },
+          "found": 0,
+          "id": 512,
+          "inclusive_active_wall_ns": 123905464,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": null,
+          "phase": "measured",
+          "span": "horizon.request",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {
+            "depth": 1
+          },
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 337943,
+          "exits": 2,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 2,
+          "id": 28448,
+          "inclusive_active_wall_ns": 337943,
+          "missing": 0,
+          "ok": 0,
+          "owned": 2,
+          "parent_id": 28447,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 2
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 316931,
+          "exits": 1,
+          "fields": {
+            "template": "blocks/_header-menu"
+          },
+          "found": 0,
+          "id": 18249,
+          "inclusive_active_wall_ns": 8458817,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 18246,
+          "phase": "measured",
+          "span": "horizon.block",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 313155,
+          "exits": 1,
+          "fields": {
+            "template": "blocks/_header-menu"
+          },
+          "found": 0,
+          "id": 20663,
+          "inclusive_active_wall_ns": 6795327,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 20660,
+          "phase": "measured",
+          "span": "horizon.block",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 1,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 289067,
+          "exits": 1,
+          "fields": {},
+          "found": 0,
+          "id": 4096,
+          "inclusive_active_wall_ns": 289962,
+          "missing": 0,
+          "ok": 0,
+          "owned": 0,
+          "parent_id": 4095,
+          "phase": "measured",
+          "span": "liquid.project",
+          "target": "liquid::profile::project",
+          "unknown_outcome": 1
+        }
+      ]
+    },
+    {
+      "case": "original-index",
+      "profile": {
+        "bytes": 39688104,
+        "sha256": "b112447a2ce306c3fbbd50817130a61698dd166f8a60ab96e9b8b55bfc2dd310"
+      },
+      "benchmark": {
+        "benchmark_mode": "direct",
+        "build_profile": "release",
+        "correctness_verified": true,
+        "css": {
+          "bytes": 279112,
+          "sha256": "67a6538e0b763c32ced001728ebf68f375dec497d4fb91c0ee136658ff9f2034"
+        },
+        "diagnostics": {
+          "configuration": {
+            "parsing": "strict",
+            "strict_filters": true,
+            "strict_variables": false
+          },
+          "engine": "liquid-rust",
+          "error": null,
+          "fixture_sha256": "867c41e0929881290af2b261af64146632bf0287524f5a6c55714af32e819f98",
+          "locale": "en",
+          "page": "index",
+          "page_type": "index",
+          "platform_calls": {
+            "asset_url": 85,
+            "color_brightness": 36,
+            "color_contrast": 6,
+            "color_darken": 4,
+            "color_lighten": 3,
+            "content_for": 20,
+            "date": 1,
+            "date:fixture_clock": 1,
+            "doc": 322,
+            "escape": 27,
+            "font_face": 6,
+            "font_modify": 12,
+            "form": 4,
+            "image_tag": 10,
+            "image_url": 16,
+            "inline_asset_content": 27,
+            "item_count_for_variant": 2,
+            "json": 2,
+            "link_to": 1,
+            "md5": 4,
+            "money": 38,
+            "money_with_currency": 2,
+            "paginate": 2,
+            "payment_terms": 1,
+            "placeholder_svg_tag": 2,
+            "preload_tag": 1,
+            "render": 357,
+            "schema": 41,
+            "sections": 2,
+            "standard_event_data": 9,
+            "style": 15,
+            "stylesheet": 205,
+            "stylesheet_tag": 2,
+            "t": 83
+          },
+          "platform_contract": {
+            "cart_item_index": "derived zero-based index",
+            "clock": "2026-01-15 12:00:00 +0000",
+            "events": "synthetic product/collection/cart view JSON",
+            "focal_point": "registered exact numeric xy pairs project at expression evaluation; identical xy objects also match; not arbitrary Drop/filter-element coercion",
+            "font": "configured Inter uses local system Arial",
+            "form_submission": "unsupported",
+            "javascript": "raw inline script once per source; bundling unsupported",
+            "option_value": "declared option shape uses display-name size; explicit size keys retain their values",
+            "optional_variables": "missing optional properties resolve to nil",
+            "pagination": "request current_page with scoped product window",
+            "payment_button": "empty only when fixture explicitly disables service",
+            "payment_terms": "empty only when fixture explicitly disables service",
+            "structured_data": "synthetic Schema.org ProductGroup; not hosted Shopify byte output"
+          },
+          "request_id": null,
+          "scenario_id": null,
+          "sections_rendered": [
+            "hero_jVaWmY",
+            "product_list_fa6P9H"
+          ],
+          "sources": [
+            "sections/hero.liquid",
+            "snippets/contrast-override.liquid",
+            "snippets/brightness-opacities.liquid",
+            "snippets/measure-header-heights.liquid",
+            "snippets/spacing-style.liquid",
+            "snippets/layout-panel-style.liquid",
+            "snippets/gap-style.liquid",
+            "blocks/text.liquid",
+            "snippets/text.liquid",
+            "snippets/text-block-styles.liquid",
+            "snippets/spacing-padding.liquid",
+            "snippets/typography-style.liquid",
+            "blocks/button.liquid",
+            "snippets/button.liquid",
+            "snippets/button-custom-styles.liquid",
+            "snippets/size-style.liquid",
+            "sections/product-list.liquid",
+            "blocks/_product-list-content.liquid",
+            "blocks/_product-list-text.liquid",
+            "blocks/_product-list-button.liquid",
+            "snippets/group.liquid",
+            "snippets/border-override.liquid",
+            "snippets/background-media.liquid",
+            "snippets/video-background-styles.liquid",
+            "blocks/_product-card.liquid",
+            "blocks/_product-card-gallery.liquid",
+            "snippets/quick-add.liquid",
+            "snippets/fly-to-cart-styles.liquid",
+            "snippets/add-to-cart-button.liquid",
+            "snippets/add-to-cart-button-styles.liquid",
+            "snippets/checkbox-styles.liquid",
+            "snippets/price-styles.liquid",
+            "snippets/quick-add-styles.liquid",
+            "snippets/video-placeholder-styles.liquid",
+            "snippets/deferred-media-product-model-styles.liquid",
+            "snippets/card-gallery.liquid",
+            "snippets/product-media.liquid",
+            "snippets/slideshow-styles.liquid",
+            "snippets/product-media-container-styles.liquid",
+            "snippets/product-card-gallery-zoom-details-styles.liquid",
+            "snippets/product-badges-styles.liquid",
+            "blocks/product-title.liquid",
+            "blocks/price.liquid",
+            "snippets/price.liquid",
+            "snippets/payment-terms-styles.liquid",
+            "snippets/product-card.liquid",
+            "snippets/product-card-styles.liquid",
+            "snippets/quantity-selector-styles.liquid",
+            "snippets/buy-buttons-styles.liquid",
+            "snippets/gift-card-recipient-form-styles.liquid",
+            "snippets/quick-add-modal-styles.liquid",
+            "snippets/dialog-styles.liquid",
+            "snippets/swatch-styles.liquid",
+            "snippets/variant-picker-styles.liquid",
+            "snippets/resource-list.liquid",
+            "snippets/resource-list-styles.liquid",
+            "layout/theme.liquid",
+            "snippets/view-transition-opt-in.liquid",
+            "snippets/meta-tags.liquid",
+            "snippets/stylesheets.liquid",
+            "snippets/card-hover-effect-styles.liquid",
+            "snippets/fonts.liquid",
+            "snippets/scripts.liquid",
+            "snippets/theme-styles-variables.liquid",
+            "snippets/color-palette.liquid",
+            "snippets/util-palette-hover-shift.liquid",
+            "snippets/skip-to-content-link.liquid",
+            "snippets/chat-drawer.liquid",
+            "sections/header-announcements.liquid",
+            "blocks/_announcement.liquid",
+            "sections/header.liquid",
+            "blocks/_header-logo.liquid",
+            "snippets/image.liquid",
+            "blocks/_header-menu.liquid",
+            "snippets/icon.liquid",
+            "snippets/submenu-font-styles.liquid",
+            "snippets/mega-menu-list.liquid",
+            "snippets/util-mega-menu-img-sizes-attr.liquid",
+            "snippets/menu-font-styles.liquid",
+            "snippets/overflow-list.liquid",
+            "snippets/header-drawer.liquid",
+            "snippets/summary-icon-styles.liquid",
+            "snippets/header-actions.liquid",
+            "snippets/cart-bubble.liquid",
+            "snippets/search.liquid",
+            "snippets/header-row.liquid",
+            "sections/footer.liquid",
+            "blocks/group.liquid",
+            "blocks/email-signup.liquid",
+            "snippets/input-custom-styles.liquid",
+            "blocks/menu.liquid",
+            "snippets/accordion-custom-component.liquid",
+            "sections/footer-utilities.liquid",
+            "blocks/footer-copyright.liquid",
+            "blocks/footer-policy-list.liquid",
+            "blocks/social-links.liquid",
+            "snippets/cart-drawer.liquid",
+            "snippets/cart-products.liquid",
+            "snippets/cart-typography-styles.liquid",
+            "snippets/text-component-shimmer-styles.liquid",
+            "snippets/theme-drawer-header.liquid",
+            "snippets/cart-disclosure-tooltip.liquid",
+            "snippets/volume-pricing-info.liquid",
+            "snippets/quantity-selector.liquid",
+            "snippets/cart-summary.liquid",
+            "snippets/tax-info.liquid",
+            "snippets/cart-items-component.liquid",
+            "snippets/theme-drawer.liquid",
+            "snippets/theme-drawer-styles.liquid",
+            "snippets/search-modal.liquid",
+            "snippets/pills-styles.liquid",
+            "snippets/predictive-search-styles.liquid",
+            "snippets/predictive-search-empty-state.liquid",
+            "snippets/predictive-search-products-list.liquid",
+            "snippets/resource-card.liquid",
+            "snippets/quick-add-modal.liquid",
+            "snippets/product-media-gallery-content-styles.liquid"
+          ],
+          "store_schema_version": 1,
+          "theme": {
+            "block_overrides": {
+              "button_H9gpTf": {
+                "settings": {
+                  "label": "Shop field essentials",
+                  "link": "/collections/all",
+                  "style_class": "button"
+                }
+              },
+              "text_YLPk4p": {
+                "settings": {
+                  "text": "<p>Equip your everyday adventure</p>",
+                  "text_color": "#000000"
+                }
+              }
+            },
+            "repository": "https://github.com/Shopify/horizon",
+            "section_overrides": {
+              "hero_jVaWmY": {
+                "settings": {
+                  "background_color": "#EEF1EA",
+                  "toggle_overlay": false
+                }
+              },
+              "product_list_fa6P9H": {
+                "settings": {
+                  "collection": "all",
+                  "max_products": 4
+                }
+              }
+            },
+            "settings": {
+              "color_palette": {
+                "background": "#ffffff",
+                "color1": "#333333",
+                "color2": "#EEF1EA",
+                "color3": "#DFDFDF",
+                "foreground": "#000000"
+              }
+            },
+            "sha": "5acd1b6b66c02f61d3216e3adace5dd9e0404fc9"
+          },
+          "theme_sha": "5acd1b6b66c02f61d3216e3adace5dd9e0404fc9"
+        },
+        "engine": "liquid-rust",
+        "fixture_sha256": "867c41e0929881290af2b261af64146632bf0287524f5a6c55714af32e819f98",
+        "html": {
+          "bytes": 435304,
+          "sha256": "d97c35b3ba08f026536cb4c469623acb9957af59fb9a9171db012958515fe990"
+        },
+        "initialization_contract": "fixture/source/configuration loading and parser setup; lazy AST compilation is exercised by warmup",
+        "initialization_ms": 16.942493,
+        "iterations": 1,
+        "page": "index",
+        "peak_rss_bytes": null,
+        "release": true,
+        "request_contract": "fresh Liquid runtimes; styles, platform calls and source diagnostics reset; immutable source/schema/AST caches retained",
+        "response_cache": false,
+        "runtime": {
+          "architecture": "x86_64",
+          "os": "linux",
+          "package_version": "0.26.11"
+        },
+        "samples": [
+          {
+            "css": {
+              "bytes": 279112,
+              "sha256": "67a6538e0b763c32ced001728ebf68f375dec497d4fb91c0ee136658ff9f2034"
+            },
+            "elapsed_ms": 170.211574,
+            "html": {
+              "bytes": 435304,
+              "sha256": "d97c35b3ba08f026536cb4c469623acb9957af59fb9a9171db012958515fe990"
+            }
+          }
+        ],
+        "samples_cpu_ms": null,
+        "samples_ms": [
+          170.211574
+        ],
+        "schema_version": 1,
+        "scope": "page",
+        "theme_sha": "5acd1b6b66c02f61d3216e3adace5dd9e0404fc9",
+        "timer": "std::time::Instant monotonic wall clock",
+        "warmup": 1
+      },
+      "status": {
+        "counts": {
+          "active_activations": 0,
+          "clock_errors": 0,
+          "closed_spans": 69181,
+          "concurrent_span_enters": 0,
+          "dropped_depth": 0,
+          "dropped_sites": 1640,
+          "dropped_sites_by_phase": {
+            "warmup": 1640
+          },
+          "dropped_threads": 0,
+          "dropped_trace_events": 0,
+          "imbalances": 0,
+          "new_spans": 69181,
+          "non_nested_parents": 0,
+          "open_spans": 0,
+          "phase_mismatches": 0,
+          "reentries": 0,
+          "rejected_fields": 0,
+          "suppressed_depth": 0,
+          "threads": 1
+        },
+        "phases": {
+          "initialize": {
+            "closed_spans": 4,
+            "complete": false,
+            "dropped_sites": 0,
+            "entered_balanced": true,
+            "error": 0,
+            "new_spans": 4,
+            "ok": 4,
+            "recorded_calls": 4,
+            "recorded_enters": 4,
+            "recorded_exits": 4,
+            "recorded_sites": 4,
+            "selected": false,
+            "unknown_outcome": 0
+          },
+          "measured": {
+            "closed_spans": 66035,
+            "complete": true,
+            "dropped_sites": 0,
+            "entered_balanced": true,
+            "error": 0,
+            "new_spans": 66035,
+            "ok": 24256,
+            "recorded_calls": 66035,
+            "recorded_enters": 66035,
+            "recorded_exits": 66035,
+            "recorded_sites": 33716,
+            "selected": true,
+            "unknown_outcome": 41779
+          },
+          "warmup": {
+            "closed_spans": 3142,
+            "complete": false,
+            "dropped_sites": 1640,
+            "entered_balanced": true,
+            "error": 0,
+            "new_spans": 3142,
+            "ok": 1502,
+            "recorded_calls": 1502,
+            "recorded_enters": 1502,
+            "recorded_exits": 1502,
+            "recorded_sites": 508,
+            "selected": false,
+            "unknown_outcome": 0
+          }
+        },
+        "limits": {
+          "auxiliary_sites": 512,
+          "depth": 64,
+          "label_bytes": 96,
+          "sites": 65536,
+          "threads": 16,
+          "trace_events": 32000
+        },
+        "complete": false,
+        "exclusive_valid": false,
+        "selected_phases_complete": true,
+        "operation_succeeded": true
+      },
+      "measured_request_calls": 1,
+      "top_measured_sites": [
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 1562,
+            "byte": 0,
+            "column": 1,
+            "line": 1
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 1147477,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "assign"
+          },
+          "found": 0,
+          "id": 20749,
+          "inclusive_active_wall_ns": 1196012,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 20748,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 4,
+          "closed": 4,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 4,
+          "error": 0,
+          "exclusive_active_wall_ns": 905604,
+          "exits": 4,
+          "fields": {
+            "kind": "render"
+          },
+          "found": 0,
+          "id": 20724,
+          "inclusive_active_wall_ns": 905604,
+          "missing": 0,
+          "ok": 0,
+          "owned": 0,
+          "parent_id": 20713,
+          "phase": "measured",
+          "span": "horizon.keyword_own",
+          "target": "horizon::profile",
+          "unknown_outcome": 4
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 2099,
+            "byte": 1018,
+            "column": 7,
+            "line": 26
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 870681,
+          "exits": 1,
+          "fields": {
+            "kind": "block",
+            "name": "paginate"
+          },
+          "found": 0,
+          "id": 33174,
+          "inclusive_active_wall_ns": 11761293,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 33125,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "depth": 1
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 870662,
+          "exits": 1,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 1,
+          "id": 21536,
+          "inclusive_active_wall_ns": 870662,
+          "missing": 0,
+          "ok": 0,
+          "owned": 1,
+          "parent_id": 21535,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 1
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 829772,
+          "exits": 2,
+          "fields": {
+            "template": "blocks/menu"
+          },
+          "found": 0,
+          "id": 27609,
+          "inclusive_active_wall_ns": 9858169,
+          "missing": 0,
+          "ok": 2,
+          "owned": 0,
+          "parent_id": 25317,
+          "phase": "measured",
+          "span": "horizon.block",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "depth": 1
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 821399,
+          "exits": 1,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 1,
+          "id": 21447,
+          "inclusive_active_wall_ns": 821399,
+          "missing": 0,
+          "ok": 0,
+          "owned": 1,
+          "parent_id": 21446,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 1
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 287,
+            "byte": 1014,
+            "column": 7,
+            "line": 32
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 739390,
+          "exits": 1,
+          "fields": {
+            "kind": "block",
+            "name": "paginate"
+          },
+          "found": 0,
+          "id": 4555,
+          "inclusive_active_wall_ns": 34002379,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 4553,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 1363,
+            "byte": 583,
+            "column": 7,
+            "line": 21
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 700841,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "render"
+          },
+          "found": 0,
+          "id": 20713,
+          "inclusive_active_wall_ns": 10717928,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 20699,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 689337,
+          "exits": 2,
+          "fields": {
+            "kind": "materialize"
+          },
+          "found": 0,
+          "id": 27613,
+          "inclusive_active_wall_ns": 704266,
+          "missing": 0,
+          "ok": 2,
+          "owned": 0,
+          "parent_id": 27609,
+          "phase": "measured",
+          "span": "horizon.settings",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 1546,
+            "byte": 3407,
+            "column": 90,
+            "line": 97
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 668061,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "render"
+          },
+          "found": 0,
+          "id": 21530,
+          "inclusive_active_wall_ns": 2035855,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 20734,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 287,
+            "byte": 2157,
+            "column": 3,
+            "line": 70
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 551495,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "render"
+          },
+          "found": 0,
+          "id": 8810,
+          "inclusive_active_wall_ns": 2281543,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 2826,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 538129,
+          "exits": 1,
+          "fields": {
+            "mode": "page"
+          },
+          "found": 0,
+          "id": 512,
+          "inclusive_active_wall_ns": 170208081,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": null,
+          "phase": "measured",
+          "span": "horizon.request",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {
+            "buffer_id": 1806,
+            "byte": 0,
+            "column": 1,
+            "line": 1
+          },
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 537886,
+          "exits": 2,
+          "fields": {
+            "kind": "tag",
+            "name": "assign"
+          },
+          "found": 0,
+          "id": 27618,
+          "inclusive_active_wall_ns": 584800,
+          "missing": 0,
+          "ok": 2,
+          "owned": 0,
+          "parent_id": 27617,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "index": 2
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 510818,
+          "exits": 1,
+          "fields": {
+            "template": "sections/product-list"
+          },
+          "found": 0,
+          "id": 2804,
+          "inclusive_active_wall_ns": 42156114,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 512,
+          "phase": "measured",
+          "span": "horizon.section",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {
+            "depth": 2
+          },
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 505449,
+          "exits": 2,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 2,
+          "id": 27634,
+          "inclusive_active_wall_ns": 505449,
+          "missing": 0,
+          "ok": 0,
+          "owned": 2,
+          "parent_id": 27633,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 2
+        },
+        {
+          "borrowed": 0,
+          "calls": 2,
+          "closed": 2,
+          "coordinates": {
+            "depth": 1
+          },
+          "delegated": 0,
+          "enters": 2,
+          "error": 0,
+          "exclusive_active_wall_ns": 503821,
+          "exits": 2,
+          "fields": {
+            "frame": "global",
+            "mode": "try"
+          },
+          "found": 2,
+          "id": 27666,
+          "inclusive_active_wall_ns": 503821,
+          "missing": 0,
+          "ok": 0,
+          "owned": 2,
+          "parent_id": 27665,
+          "phase": "measured",
+          "span": "liquid.frame",
+          "target": "liquid::profile::frame",
+          "unknown_outcome": 2
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 1546,
+            "byte": 3317,
+            "column": 16,
+            "line": 96
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 478254,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "render"
+          },
+          "found": 0,
+          "id": 21441,
+          "inclusive_active_wall_ns": 1613404,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 20734,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 465277,
+          "exits": 1,
+          "fields": {
+            "template": "blocks/_header-menu"
+          },
+          "found": 0,
+          "id": 20652,
+          "inclusive_active_wall_ns": 11881199,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 20649,
+          "phase": "measured",
+          "span": "horizon.block",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {
+            "buffer_id": 1386,
+            "byte": 0,
+            "column": 1,
+            "line": 1
+          },
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 462667,
+          "exits": 1,
+          "fields": {
+            "kind": "tag",
+            "name": "assign"
+          },
+          "found": 0,
+          "id": 18291,
+          "inclusive_active_wall_ns": 477298,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 18290,
+          "phase": "measured",
+          "span": "liquid.node",
+          "target": "liquid::profile::node",
+          "unknown_outcome": 0
+        },
+        {
+          "borrowed": 0,
+          "calls": 1,
+          "closed": 1,
+          "coordinates": {},
+          "delegated": 0,
+          "enters": 1,
+          "error": 0,
+          "exclusive_active_wall_ns": 458056,
+          "exits": 1,
+          "fields": {
+            "kind": "materialize"
+          },
+          "found": 0,
+          "id": 18242,
+          "inclusive_active_wall_ns": 469315,
+          "missing": 0,
+          "ok": 1,
+          "owned": 0,
+          "parent_id": 18238,
+          "phase": "measured",
+          "span": "horizon.settings",
+          "target": "horizon::profile",
+          "unknown_outcome": 0
+        }
+      ]
+    }
+  ],
+  "correctness_verified": true,
+  "verification": "functional W1/N1 detailed captures; not benchmarks",
+  "publication": {
+    "raw_report_fingerprint": {
+      "bytes": 119593,
+      "sha256": "79a7d2795e3ec74e7acd55b11bc4efe86669806551f8e27f518fa02755dc2bfd"
+    },
+    "source_head": "390f9d4cccca9aa1db03eb3046c49b53922a21fd",
+    "notes": [
+      "All four selected measured phases are complete. Whole-capture completeness is false only because the separately bounded warmup allowance drops auxiliary sites.",
+      "Numeric and structural evidence only; external theme, rendered bodies, mappings, addresses, full span stacks and private paths remain local.",
+      "Shared workstation; measurements rank their recorded configurations and timing boundaries only."
+    ]
+  }
+}

@@ -141,3 +141,5 @@ The [current checkpoint](RESULTS.md) records 112 native gRPC scopes with exact R
 Opt-in Rust [render profiling](PROFILING.md) reports template/node/filter/lookup and
 platform costs with separate warmup/measured phases, bounded traces and reproducible
 feature-off/inactive/active overhead checks.
+
+[The Rust profiling checkpoint](PROFILING_RESULTS.md) records complete selected-phase captures, independent CPU hot spots, profiler overhead and final full-page parity.
