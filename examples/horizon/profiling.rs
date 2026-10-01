@@ -674,6 +674,14 @@ impl<S> Layer<S> for Collector
 where
     S: Subscriber + for<'span> LookupSpan<'span>,
 {
+    fn max_level_hint(&self) -> Option<tracing::level_filters::LevelFilter> {
+        Some(if self.0.detailed {
+            tracing::level_filters::LevelFilter::TRACE
+        } else {
+            tracing::level_filters::LevelFilter::DEBUG
+        })
+    }
+
     fn register_callsite(
         &self,
         _metadata: &'static Metadata<'static>,
@@ -915,6 +923,62 @@ mod tests {
         assert_eq!(second.report()["counts"]["new_spans"], 1);
         assert_eq!(first.report()["complete"], true);
         assert_eq!(second.report()["complete"], true);
+    }
+
+    #[test]
+    fn level_hints_match_coarse_and_phase_sensitive_detailed_filtering() {
+        fn emit() {
+            let _parent =
+                tracing::debug_span!(target: "horizon::profile", "template", ok = true).entered();
+            let _child =
+                tracing::trace_span!(target: "liquid::profile", "detail", ok = true).entered();
+        }
+        let coarse = Controller::new(false, false);
+        let coarse_subscriber =
+            tracing_subscriber::registry().with(Collector(Arc::clone(&coarse.inner)));
+        assert_eq!(
+            coarse_subscriber.max_level_hint(),
+            Some(tracing::level_filters::LevelFilter::DEBUG)
+        );
+        coarse.with_default(|| {
+            {
+                let _phase = phase("warmup");
+                emit();
+            }
+            {
+                let _phase = phase("measured");
+                emit();
+            }
+        });
+        assert_eq!(coarse.report()["counts"]["new_spans"], 2);
+        assert!(!coarse.report()["aggregates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|site| site["span"] == "detail"));
+
+        let detailed = Controller::new(true, false);
+        let detailed_subscriber =
+            tracing_subscriber::registry().with(Collector(Arc::clone(&detailed.inner)));
+        assert_eq!(
+            detailed_subscriber.max_level_hint(),
+            Some(tracing::level_filters::LevelFilter::TRACE)
+        );
+        detailed.with_default(|| {
+            {
+                let _phase = phase("warmup");
+                emit();
+            }
+            {
+                let _phase = phase("measured");
+                emit();
+            }
+        });
+        let report = detailed.report();
+        assert_eq!(report["counts"]["new_spans"], 3);
+        assert_eq!(row(&report, "detail")["phase"], "measured");
+        assert_eq!(row(&report, "detail")["calls"], 1);
+        assert_eq!(report["complete"], true);
     }
 
     #[test]

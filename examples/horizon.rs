@@ -2083,7 +2083,16 @@ fn pagination_window(root: &dyn ValueView, path: &[ScalarCow<'_>], window: Value
     let child = pagination_window(child, rest, window)?;
     let mut result = object
         .iter()
-        .map(|(key, value)| (key.into_owned(), value.to_value()))
+        .map(|(name, value)| {
+            // Keep the original key insertion sequence without copying the
+            // subtree that the replacement below immediately discards.
+            let value = if name.as_str() == key.as_str() {
+                Value::Nil
+            } else {
+                value.to_value()
+            };
+            (name.into_owned(), value)
+        })
         .collect::<Object>();
     result.insert(key.into_owned(), child);
     Ok(Value::Object(result))
@@ -4451,6 +4460,87 @@ mod tests {
             values
         )
         .is_err());
+    }
+
+    #[test]
+    fn pagination_window_preserves_siblings_without_materializing_replaced_subtrees() {
+        #[derive(Debug)]
+        struct Replaced<'a>(&'a dyn ValueView);
+        impl ValueView for Replaced<'_> {
+            fn as_debug(&self) -> &dyn fmt::Debug {
+                self
+            }
+            fn render(&self) -> DisplayCow<'_> {
+                self.0.render()
+            }
+            fn source(&self) -> DisplayCow<'_> {
+                self.0.source()
+            }
+            fn type_name(&self) -> &'static str {
+                self.0.type_name()
+            }
+            fn query_state(&self, state: State) -> bool {
+                self.0.query_state(state)
+            }
+            fn to_kstr(&self) -> KStringCow<'_> {
+                self.0.to_kstr()
+            }
+            fn to_value(&self) -> Value {
+                panic!("pagination must not materialize a replaced subtree")
+            }
+            fn as_object(&self) -> Option<&dyn ObjectView> {
+                self.0.as_object()
+            }
+        }
+
+        let original = liquid_core::value!([{"id": 1}, {"id": 2}, {"id": 3}]);
+        let replaced_products = Replaced(&original);
+        let nested_sibling = liquid_core::value!({"count": 3, "empty": nil});
+        let collection: BTreeMap<String, &dyn ValueView> = BTreeMap::from([
+            ("products".into(), &replaced_products as &dyn ValueView),
+            ("metadata".into(), &nested_sibling as &dyn ValueView),
+        ]);
+        let replaced_collection = Replaced(&collection);
+        let root_sibling = liquid_core::value!(["kept", nil]);
+        let root: BTreeMap<String, &dyn ValueView> = BTreeMap::from([
+            ("collection".into(), &replaced_collection as &dyn ValueView),
+            ("sibling".into(), &root_sibling as &dyn ValueView),
+        ]);
+        let path = [ScalarCow::new("collection"), ScalarCow::new("products")];
+        let window = liquid_core::value!([{"id": 2}]);
+        assert_eq!(
+            pagination_window(&root, &path, window.clone()).unwrap(),
+            liquid_core::value!({
+                "collection": {"products": [{"id": 2}], "metadata": {"count": 3, "empty": nil}},
+                "sibling": ["kept", nil]
+            })
+        );
+        let nil_window = pagination_window(&root, &path, Value::Nil).unwrap();
+        assert_eq!(
+            nil_window,
+            liquid_core::value!({
+                "collection": {"products": nil, "metadata": {"count": 3, "empty": nil}},
+                "sibling": ["kept", nil]
+            })
+        );
+        assert_eq!(
+            pagination_window(&Replaced(&root), &[], window.clone()).unwrap(),
+            window
+        );
+        assert!(pagination_window(&root, &["missing".into()], Value::Nil)
+            .unwrap_err()
+            .to_string()
+            .contains("Missing pagination parent property"));
+        assert!(pagination_window(&root, &[1.into()], Value::Nil)
+            .unwrap_err()
+            .to_string()
+            .contains("object property paths only"));
+        assert!(
+            pagination_window(&Value::Nil, &["products".into()], Value::Nil)
+                .unwrap_err()
+                .to_string()
+                .contains("Paginated parent requires object")
+        );
     }
 
     #[test]
