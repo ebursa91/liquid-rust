@@ -176,6 +176,7 @@ struct Context {
     calls: Mutex<BTreeMap<String, usize>>,
     rendered_sources: Mutex<Vec<String>>,
     palette: Vec<FixtureColor>,
+    focal_points: BTreeMap<FocalPointKey, FixtureFocalPoint>,
     json_cache: Mutex<BTreeMap<String, Json>>,
     asset_cache: Mutex<BTreeMap<String, String>>,
 }
@@ -356,6 +357,7 @@ impl Context {
             inner: &inner,
             name: &name,
             palette: &self.palette,
+            focal_points: &self.focal_points,
         };
         let tag = schema
             .get("tag")
@@ -527,6 +529,7 @@ impl Context {
             inner: &inner,
             name: &name,
             palette: &self.palette,
+            focal_points: &self.focal_points,
         };
         let tag = schema
             .get("tag")
@@ -672,11 +675,35 @@ struct FixtureRuntime<'a> {
     inner: &'a dyn Runtime,
     name: &'a str,
     palette: &'a Vec<FixtureColor>,
+    focal_points: &'a BTreeMap<FocalPointKey, FixtureFocalPoint>,
 }
 
 impl Runtime for FixtureRuntime<'_> {
     fn strict_variables(&self) -> bool {
         false
+    }
+    fn project_value<'a>(
+        &'a self,
+        value: ValueCow<'a>,
+        scope: &'a dyn Runtime,
+        path: Option<&[ScalarCow<'_>]>,
+    ) -> ValueCow<'a> {
+        if let Some((property, prefix)) = path.and_then(|path| path.split_last()) {
+            if property.to_kstr() == "size" {
+                if let Some(name) = scope.try_get(prefix).and_then(|value| {
+                    if value.as_object()?.contains_key("size") {
+                        return None;
+                    }
+                    option_value_name(value.as_view()).map(|name| name.into_owned())
+                }) {
+                    return ValueCow::Owned(Value::scalar(name.chars().count() as i64));
+                }
+            }
+        }
+        focal_point_key(value.as_view())
+            .and_then(|key| self.focal_points.get(&key))
+            .map(|point| ValueCow::Borrowed(point as &dyn ValueView))
+            .unwrap_or(value)
     }
     fn partials(&self) -> &dyn PartialStore {
         self.inner.partials()
@@ -691,6 +718,9 @@ impl Runtime for FixtureRuntime<'_> {
         if let Some((property, prefix)) = path.split_last() {
             if property.to_kstr() == "size" {
                 if let Some(name) = self.inner.try_get(prefix).and_then(|value| {
+                    if value.as_object()?.contains_key("size") {
+                        return None;
+                    }
                     option_value_name(value.as_view()).map(|name| name.into_owned())
                 }) {
                     return Some(ValueCow::Owned(Value::scalar(name.chars().count() as i64)));
@@ -703,21 +733,6 @@ impl Runtime for FixtureRuntime<'_> {
             && !self.palette.is_empty()
         {
             return Some(ValueCow::Borrowed(self.palette));
-        }
-        if path
-            .last()
-            .is_some_and(|part| part.to_kstr() == "focal_point")
-        {
-            let value = self.inner.try_get(path)?;
-            if let Some(object) = value.as_object() {
-                let x = object.get("x")?.as_scalar()?.to_float()?;
-                let y = object.get("y")?.as_scalar()?.to_float()?;
-                return Some(ValueCow::Owned(Value::scalar(format!(
-                    "{}% {}%",
-                    ruby_float(x),
-                    ruby_float(y)
-                ))));
-            }
         }
         if path.len() == 1 && path[0].to_kstr() == "template" {
             let value = self.inner.try_get(path)?;
@@ -859,6 +874,7 @@ impl Renderable for TagNode {
                 inner: &inner,
                 name: &primary,
                 palette: &self.context.palette,
+                focal_points: &self.context.focal_points,
             };
             self.context.record_source(&primary)?;
             return runtime.partials().get(&primary)?.render_to(writer, &frame);
@@ -1176,6 +1192,7 @@ impl Renderable for BlockNode {
                     inner: &frame,
                     name: name.as_ref().map(|name| name.as_str()).unwrap_or(""),
                     palette: &self.context.palette,
+                    focal_points: &self.context.focal_points,
                 };
                 if let Some(body) = &self.body {
                     body.render_to(writer, &frame)?;
@@ -1259,6 +1276,7 @@ impl Renderable for BlockNode {
                     inner: &frame,
                     name: name.as_ref().map(|name| name.as_str()).unwrap_or(""),
                     palette: &self.context.palette,
+                    focal_points: &self.context.focal_points,
                 };
                 if let Some(body) = &self.body {
                     body.render_to(writer, &frame)?;
@@ -1360,6 +1378,124 @@ impl ValueView for FixtureColor {
     fn as_object(&self) -> Option<&dyn ObjectView> {
         Some(&self.fields)
     }
+}
+
+// The finite fixture models focal points as exact two-number {x,y} objects.
+// Views preserve that object when copied into assigns/loops; interpolation and
+// string filters receive the percentage string used by the Ruby adapter.
+// Recognition is structural: another exact x/y object with the same registered
+// coordinates and numeric types also receives this view. Presentation is restored
+// at expression evaluation, not every filter's internal array-element access.
+type FocalPointKey = (u64, u64, &'static str, &'static str);
+
+fn focal_point_key(value: &dyn ValueView) -> Option<FocalPointKey> {
+    let object = value.as_object()?;
+    if object.size() != 2 {
+        return None;
+    }
+    let x = object.get("x")?.as_scalar()?;
+    let y = object.get("y")?.as_scalar()?;
+    if !["whole number", "fractional number"].contains(&x.type_name())
+        || !["whole number", "fractional number"].contains(&y.type_name())
+    {
+        return None;
+    }
+    let (x_number, y_number) = (x.to_float()?, y.to_float()?);
+    if !x_number.is_finite()
+        || !y_number.is_finite()
+        || !(0.0..=100.0).contains(&x_number)
+        || !(0.0..=100.0).contains(&y_number)
+    {
+        return None;
+    }
+    Some((
+        x_number.to_bits(),
+        y_number.to_bits(),
+        x.type_name(),
+        y.type_name(),
+    ))
+}
+
+#[derive(Debug)]
+struct FixtureFocalPoint {
+    fields: Object,
+    text: String,
+}
+
+impl ValueView for FixtureFocalPoint {
+    fn as_debug(&self) -> &dyn fmt::Debug {
+        self
+    }
+    fn render(&self) -> DisplayCow<'_> {
+        DisplayCow::Borrowed(&self.text)
+    }
+    fn source(&self) -> DisplayCow<'_> {
+        self.fields.source()
+    }
+    fn type_name(&self) -> &'static str {
+        "fixture focal point"
+    }
+    fn query_state(&self, state: State) -> bool {
+        self.fields.query_state(state)
+    }
+    fn to_kstr(&self) -> KStringCow<'_> {
+        self.text.as_str().into()
+    }
+    fn to_value(&self) -> Value {
+        Value::Object(self.fields.clone())
+    }
+    fn as_object(&self) -> Option<&dyn ObjectView> {
+        Some(&self.fields)
+    }
+}
+
+fn fixture_focal_points(
+    values: &dyn ValueView,
+) -> Result<BTreeMap<FocalPointKey, FixtureFocalPoint>> {
+    fn collect(
+        value: &dyn ValueView,
+        points: &mut BTreeMap<FocalPointKey, FixtureFocalPoint>,
+    ) -> Result<()> {
+        if let Some(object) = value.as_object() {
+            for (name, value) in object.iter() {
+                if name == "focal_point" && !value.is_nil() {
+                    let key = focal_point_key(value).ok_or_else(|| failure("Fixture focal_point requires exactly numeric x/y percentages in 0..=100"))?;
+                    if let std::collections::btree_map::Entry::Vacant(entry) = points.entry(key) {
+                        let object = value
+                            .as_object()
+                            .ok_or_else(|| failure("Expected fixture focal point object"))?;
+                        let fields = object
+                            .iter()
+                            .map(|(name, value)| (name.into_owned(), value.to_value()))
+                            .collect();
+                        entry.insert(FixtureFocalPoint {
+                            fields,
+                            text: format!(
+                                "{}% {}%",
+                                object
+                                    .get("x")
+                                    .ok_or_else(|| failure("Missing focal point x"))?
+                                    .render(),
+                                object
+                                    .get("y")
+                                    .ok_or_else(|| failure("Missing focal point y"))?
+                                    .render()
+                            ),
+                        });
+                    }
+                }
+                collect(value, points)?;
+            }
+        } else if let Some(array) = value.as_array() {
+            for value in array.values() {
+                collect(value, points)?;
+            }
+        }
+        Ok(())
+    }
+    let mut points = BTreeMap::new();
+    collect(values, &mut points)?;
+    Ok(points)
 }
 
 fn ruby_float(value: f64) -> String {
@@ -2562,6 +2698,7 @@ impl Renderer {
                 }
             }
         }
+        let focal_points = fixture_focal_points(&globals)?;
         let mut context = Context {
             theme: theme.clone(),
             locales: read_json(&theme.join(format!(
@@ -2582,6 +2719,7 @@ impl Renderer {
             calls: Mutex::new(BTreeMap::new()),
             rendered_sources: Mutex::new(Vec::new()),
             palette: Vec::new(),
+            focal_points,
             json_cache: Mutex::new(BTreeMap::new()),
             asset_cache: Mutex::new(BTreeMap::new()),
         };
@@ -2722,6 +2860,7 @@ impl Renderer {
                     inner: &runtime,
                     name: "layout/theme",
                     palette: &context.palette,
+                    focal_points: &context.focal_points,
                 };
                 let mut output = Vec::new();
                 context.record_source("layout/theme")?;
@@ -2770,7 +2909,7 @@ impl Renderer {
 
     fn report(&self, output: &RenderOutput) -> Result<Json> {
         let context = &self.context;
-        let report = json!({"engine":"liquid-rust","page":self.page,"page_type":context.fixture["pages"][&self.page]["type"].as_str().unwrap_or(&self.page),"locale":context.locale,"request_id":context.fixture["pages"][&self.page]["request_id"],"scenario_id":context.fixture["manifest"]["scenario_id"],"fixture_sha256":self.fixture_sha256,"theme_sha":context.fixture["theme"]["sha"],"theme":context.fixture["theme"],"store_schema_version":context.fixture["schema_version"],"configuration":{"parsing":"strict","strict_variables":false,"strict_filters":true},"sections_rendered":output.sections,"platform_calls":*context.calls.lock().map_err(failure)?,"sources":*context.rendered_sources.lock().map_err(failure)?,"platform_contract":{"pagination":"request current_page with scoped product window","font":"configured Inter uses local system Arial","events":"synthetic product/collection/cart view JSON","javascript":"raw inline script once per source; bundling unsupported","structured_data":"synthetic Schema.org ProductGroup; not hosted Shopify byte output","payment_button":"empty only when fixture explicitly disables service","form_submission":"unsupported","cart_item_index":"derived zero-based index","payment_terms":"empty only when fixture explicitly disables service","optional_variables":"missing optional properties resolve to nil","clock":context.fixture["manifest"]["created_at"]},"error":output.error});
+        let report = json!({"engine":"liquid-rust","page":self.page,"page_type":context.fixture["pages"][&self.page]["type"].as_str().unwrap_or(&self.page),"locale":context.locale,"request_id":context.fixture["pages"][&self.page]["request_id"],"scenario_id":context.fixture["manifest"]["scenario_id"],"fixture_sha256":self.fixture_sha256,"theme_sha":context.fixture["theme"]["sha"],"theme":context.fixture["theme"],"store_schema_version":context.fixture["schema_version"],"configuration":{"parsing":"strict","strict_variables":false,"strict_filters":true},"sections_rendered":output.sections,"platform_calls":*context.calls.lock().map_err(failure)?,"sources":*context.rendered_sources.lock().map_err(failure)?,"platform_contract":{"focal_point":"registered exact numeric xy pairs project at expression evaluation; identical xy objects also match; not arbitrary Drop/filter-element coercion","option_value":"declared option shape uses display-name size; explicit size keys retain their values","pagination":"request current_page with scoped product window","font":"configured Inter uses local system Arial","events":"synthetic product/collection/cart view JSON","javascript":"raw inline script once per source; bundling unsupported","structured_data":"synthetic Schema.org ProductGroup; not hosted Shopify byte output","payment_button":"empty only when fixture explicitly disables service","form_submission":"unsupported","cart_item_index":"derived zero-based index","payment_terms":"empty only when fixture explicitly disables service","optional_variables":"missing optional properties resolve to nil","clock":context.fixture["manifest"]["created_at"]},"error":output.error});
         Ok(report)
     }
 
@@ -3208,6 +3347,7 @@ mod tests {
             calls: Mutex::new(BTreeMap::new()),
             rendered_sources: Mutex::new(Vec::new()),
             palette: Vec::new(),
+            focal_points: BTreeMap::new(),
             json_cache: Mutex::new(BTreeMap::new()),
             asset_cache: Mutex::new(BTreeMap::new()),
         })
@@ -3480,6 +3620,101 @@ mod tests {
         fs::remove_dir_all(directory).unwrap();
     }
 
+    #[test]
+    fn focal_point_views_survive_loop_assign_capture_render_and_keep_xy_properties() {
+        let values = liquid_core::object!({"image":{"presentation":{"focal_point":{"x":25.0,"y":75.0}}},"media":[{"presentation":{"focal_point":{"x":25.0,"y":75.0}}}],"ordinary":{"x":1,"y":2}});
+        let source = "{% assign saved = image.presentation.focal_point %}{{ saved }}:{{ saved.x }}/{{ saved.y }}|{{ 'point=' | append: saved }}|{{ saved | json }}|{% for item in media %}{% assign point = item.presentation.focal_point %}{% capture label %}{{ point }}{% endcapture %}{{ item.presentation.focal_point }}:{{ label }}:{% render 'leaf', point: point %}{% endfor %}|{{ ordinary | json }}";
+        let mut host = Arc::try_unwrap(context(&[
+            ("leaf", "{{ point }}:{{ point.x }}/{{ point.y }}"),
+            ("probe", source),
+        ]))
+        .unwrap();
+        host.focal_points = fixture_focal_points(&values).unwrap();
+        host.fixture["manifest"] = json!({"mock_contract":{"json_object_order":"sorted"}});
+        let host = Arc::new(host);
+        assert_eq!(render(host.clone(), source, values.clone()).unwrap(), "25.0% 75.0%:25.0/75.0|point=25.0% 75.0%|{\"x\":25.0,\"y\":75.0}|25.0% 75.0%:25.0% 75.0%:25.0% 75.0%:25.0/75.0|{\"x\":1,\"y\":2}");
+        assert_eq!(render(host, source, values.clone()).unwrap(), "25.0% 75.0%:25.0/75.0|point=25.0% 75.0%|{\"x\":25.0,\"y\":75.0}|25.0% 75.0%:25.0% 75.0%:25.0% 75.0%:25.0/75.0|{\"x\":1,\"y\":2}");
+        assert_eq!(
+            values["image"]
+                .as_object()
+                .unwrap()
+                .get("presentation")
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .get("focal_point")
+                .unwrap()
+                .to_value(),
+            liquid_core::value!({"x":25.0,"y":75.0})
+        );
+    }
+
+    #[test]
+    fn focal_point_registry_rejects_invalid_coordinates_and_keeps_numeric_types() {
+        for value in [
+            liquid_core::value!({"focal_point":{"x":"25","y":75.0}}),
+            liquid_core::value!({"focal_point":{"x":-1.0,"y":75.0}}),
+            liquid_core::value!({"focal_point":{"x":25.0,"y":101.0}}),
+            liquid_core::value!({"focal_point":{"x":25.0,"y":75.0,"extra":true}}),
+        ] {
+            assert!(fixture_focal_points(&value).is_err());
+        }
+        let points =
+            fixture_focal_points(&liquid_core::value!({"focal_point":{"x":25,"y":75.0}})).unwrap();
+        let point = points.values().next().unwrap();
+        assert_eq!(point.to_kstr(), "25% 75.0%");
+        assert_eq!(point.to_value(), liquid_core::value!({"x":25,"y":75.0}));
+        assert!(
+            fixture_focal_points(&liquid_core::value!({"focal_point":nil}))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn option_value_size_uses_names_inside_loop_assign_and_sandbox_frames() {
+        let source = "{% for item in options %}{% assign saved = item %}{{ item.size }}/{{ saved.size }}/{{ saved | escape }}:{{ saved.name }}{% endfor %}|{{ ordinary.size }}";
+        let host = context(&[("probe", source)]);
+        let values = liquid_core::object!({"options":[{"id":1,"name":"A&B🌲","available":true,"selected":true,"variant":nil,"product_url":nil}],"ordinary":{"a":1,"b":2}});
+        assert_eq!(
+            render(host, source, values).unwrap(),
+            "4/4/A&amp;B🌲:A&B🌲|2"
+        );
+        for (size, expected) in [(Value::Nil, "nil"), (Value::scalar(99), "99")] {
+            let item = liquid_core::value!({"id":1,"name":"label","available":true,"selected":true,"variant":nil,"product_url":nil,"size":size});
+            assert_eq!(
+                render(
+                    context(&[]),
+                    "{{ item.size | default: 'nil' }}",
+                    liquid_core::object!({"item":item})
+                )
+                .unwrap(),
+                expected
+            );
+        }
+        let globals = liquid_core::object!({"private":{"id":1,"name":"parent secret","available":true,"selected":true,"variant":nil,"product_url":nil}});
+        let inner = RuntimeBuilder::new().set_globals(&globals).build();
+        let palette = vec![];
+        let points = BTreeMap::new();
+        let fixture = FixtureRuntime {
+            inner: &inner,
+            name: "probe",
+            palette: &palette,
+            focal_points: &points,
+        };
+        let locals = liquid_core::object!({"item":{"id":2,"name":"local","available":true,"selected":true,"variant":nil,"product_url":nil}});
+        let sandbox = liquid_core::runtime::SandboxedStackFrame::new(&fixture, &locals);
+        for (path, expected) in [
+            ("item.size", Value::scalar(5)),
+            ("private.size", Value::Nil),
+            ("private[missing].size", Value::Nil),
+        ] {
+            let expression =
+                Expression::Variable(liquid_core::parser::parse_variable(path).unwrap());
+            assert_eq!(expression.evaluate(&sandbox).unwrap().to_value(), expected);
+        }
+    }
+
     fn render(context: Arc<Context>, source: &str, values: Object) -> Result<String> {
         let language = language(context.clone())?;
         let partials = OnDemandCompiler::new(context.sources.clone()).compile(language.clone())?;
@@ -3493,6 +3728,7 @@ mod tests {
             inner: &runtime,
             name: "test",
             palette: &context.palette,
+            focal_points: &context.focal_points,
         };
         Template::new(liquid_core::parser::parse(source, &language)?).render(&runtime)
     }
@@ -4087,6 +4323,7 @@ mod tests {
                 inner: &inner,
                 name: "probe",
                 palette: &palette,
+                focal_points: &BTreeMap::new(),
             };
             assert!(runtime
                 .get(&["probe".into(), "unavailable".into()])
@@ -4107,6 +4344,7 @@ mod tests {
             inner: &inner,
             name: "probe",
             palette: &palette,
+            focal_points: &BTreeMap::new(),
         };
         for (root, property, expected) in [
             ("color", "rgb", Value::scalar("16 32 48")),

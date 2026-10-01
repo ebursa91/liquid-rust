@@ -39,3 +39,5 @@ PYTHONPATH="$SERVICE_ROOT/src" "$SERVICE_ROOT/.venv/bin/python" compat/horizon/c
 ```
 
 All source repositories must be clean. Output stays outside them; rendered theme source/output remains local. Publish only the numeric/hash comparison report. `diagnostic_timing` includes CLI startup/dependency activation, RPC fetch, validation and rendering; it is not an RPS benchmark or an equal-work startup comparison. The historical `baseline` query preserves the original fixture bytes and legacy settings behavior only for explicit oracle reproduction. Prepared renderer HTTP benchmarks use that offline baseline and exclude data-service work; they are documented separately in `RPS.md`.
+
+The fixture host recognizes focal-point objects by exact registered two-field numeric `x`/`y` coordinates. An identical object shape uses the same view. Expression evaluation restores percentage presentation and option-value virtual size through active scopes; arbitrary filter-internal element accesses are outside this bounded adapter contract. Numeric fields and ordinary JSON copies remain authoritative.
