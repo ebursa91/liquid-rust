@@ -132,6 +132,8 @@ The four-mode comparison tool and its timing boundaries are documented in
 inside each worker, verifies every warm result against independent output bytes,
 and records cold CLI timings separately from warm prepared rendering.
 
-The [seven-batch performance comparison](RESULTS.md) covers release Rust and Ruby 4.0.7 in plain, YJIT and Fiber/YJIT modes, with every output checked. Warm medians in that shared-host run were 65.66, 55.42, 23.75 and 24.37 ms respectively; see the complete distributions and limitations before interpreting them. The standalone original Ruby renderer is public at [ebursa91/horizon-ruby-renderer](https://github.com/ebursa91/horizon-ruby-renderer). The [rendering and performance goal](ROADMAP.md) records the next coverage and measurement steps.
+The historical [seven-batch performance comparison](RESULTS.md) covers release Rust and Ruby 4.0.7 in plain, YJIT and Fiber/YJIT modes, with every output checked. Warm medians in that shared-host run were 65.66, 55.42, 23.75 and 24.37 ms respectively; see the complete distributions and limitations before interpreting them. The standalone original Ruby renderer is public at [ebursa91/horizon-ruby-renderer](https://github.com/ebursa91/horizon-ruby-renderer). The [rendering and performance goal](ROADMAP.md) records the next coverage and measurement steps.
 
 Shared authoritative store/configuration data is available through the native gRPC clients; see [DATA_SERVICE.md](DATA_SERVICE.md). Explicit local fixtures remain offline oracle inputs.
+
+The [current checkpoint](RESULTS.md) records 112 native gRPC scopes with exact Ruby/Rust parity, the [paired CPU investigation](PERFORMANCE_INVESTIGATION.md) and [calibrated HTTP throughput](RPS_RESULTS.md). Regex reuse reduced observed Rust worker CPU from 68.5 to 31.5 ms/request; four-client Rust throughput measured 25.85 RPS in the separate HTTP run.

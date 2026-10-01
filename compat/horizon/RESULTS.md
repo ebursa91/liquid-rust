@@ -1,3 +1,13 @@
+# Current rendering and performance checkpoint, 2026-10-01
+
+Both native clients now use one tenant-scoped mock gRPC data authority. [Native parity evidence](results/2026-10-01-grpc-parity.json) covers **112 scopes / 236 renders**; [deterministic offline parity](results/2026-10-01-offline-parity.json) covers **48 page cases / 192 renders**. Genuine pinned index/product/collection templates match exactly across two tenants, 4/100-product stores, en/de/pl, two settings profiles, pagination and representative empty carts.
+
+The [paired CPU investigation](PERFORMANCE_INVESTIGATION.md) reduced Rust worker CPU from **68.5 to 31.5 ms/request** by reusing compiled adapter regexes. Ruby 4.0.7 YJIT measured **24.2 ms/request** in the same probe. The [separate calibrated HTTP experiment](RPS_RESULTS.md) measured four-client medians of **25.85 Rust RPS** and **28.90 Ruby YJIT RPS**. These prepared-render experiments exclude RPC fetch; the native matrix's differently bounded fetch/CLI diagnostics support correctness, not SDK speed rankings.
+
+The seven-batch report below is historical evidence for earlier implementation revisions. Its numbers remain unchanged; subsequent fixes and expanded native contexts are documented above.
+
+---
+
 # Synthetic Horizon homepage benchmark, 2026-10-01
 
 Ruby 4.0.7 with YJIT had the lowest observed warm median in this run: **23.75 ms**, compared with **65.66 ms** for the Rust release host. All 2,328 renders, including warmup, fresh-process correctness checks and measured requests, matched the independent original Ruby oracle's exact HTML/CSS. These numbers compare the two configured full-page hosts, including their synthetic Shopify adapters. They are not universal Liquid engine or Shopify throughput results.
