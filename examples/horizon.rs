@@ -304,7 +304,7 @@ impl Context {
     }
 
     fn render_section(
-        &self,
+        self: &Arc<Self>,
         writer: &mut dyn Write,
         partials: &dyn PartialStore,
         id: &str,
@@ -318,6 +318,7 @@ impl Context {
         let name = format!("sections/{kind}");
         let schema = self.sources.schema(&name)?;
         let mut globals = Object::new();
+        let mut section_closest = None;
         let mut section = liquid_core::model::to_value(&prepared)?;
         if let Value::Object(object) = &mut section {
             if let Some(Value::Object(settings)) = object.get_mut("settings") {
@@ -326,27 +327,22 @@ impl Context {
                     &schema,
                     &globals_view(&self.globals, &globals),
                 )?;
-                let mut closest = self
-                    .globals
-                    .get("closest")
-                    .and_then(ValueView::as_object)
-                    .map(|closest| {
-                        closest
-                            .iter()
-                            .map(|(key, value)| (key.into_owned(), value.to_value()))
-                            .collect::<Object>()
-                    })
-                    .unwrap_or_default();
+                let mut closest = Object::new();
                 if let Some(collection) = settings.get("collection").filter(|value| !value.is_nil())
                 {
                     closest.insert("collection".into(), collection.clone());
                 }
-                globals.insert("closest".into(), Value::Object(closest));
+                section_closest = Some(Arc::new(ClosestView {
+                    parent: ClosestParent::Context(self.clone()),
+                    local: closest,
+                }));
             }
         }
         globals.insert("section".into(), section);
         globals.insert("block".into(), Value::Nil);
-        let globals = Arc::new(ScopeOverlay::root(globals));
+        let mut scope = ScopeOverlay::root(globals);
+        scope.closest = section_closest;
+        let globals = Arc::new(scope);
         let values = globals_view(&self.globals, globals.as_ref());
         let inner = RuntimeBuilder::new()
             .set_globals(&values)
@@ -381,7 +377,7 @@ impl Context {
     }
 
     fn render_group(
-        &self,
+        self: &Arc<Self>,
         writer: &mut dyn Write,
         partials: &dyn PartialStore,
         name: &str,
@@ -484,7 +480,7 @@ impl Context {
         writer: &mut dyn Write,
         runtime: &dyn Runtime,
         mut block: Value,
-        closest: Option<Value>,
+        closest: Option<Arc<ClosestView>>,
         locals: &Object,
     ) -> Result<()> {
         let object = block
@@ -504,7 +500,7 @@ impl Context {
         let schema = self.sources.schema(&name)?;
         let mut globals = ScopeOverlay::child(self.scope(runtime), Object::new());
         if let Some(closest) = closest {
-            globals.local.insert("closest".into(), closest);
+            globals.closest = Some(closest);
         }
         if let Value::Object(object) = &mut block {
             if let Some(Value::Object(settings)) = object.get_mut("settings") {
@@ -559,6 +555,7 @@ impl Context {
 struct ScopeOverlay {
     parent: Option<Arc<ScopeOverlay>>,
     local: Object,
+    closest: Option<Arc<ClosestView>>,
 }
 
 impl ScopeOverlay {
@@ -566,19 +563,38 @@ impl ScopeOverlay {
         Self {
             parent: None,
             local,
+            closest: None,
         }
     }
     fn child(parent: Arc<Self>, local: Object) -> Self {
         Self {
             parent: Some(parent),
             local,
+            closest: None,
         }
+    }
+    fn shared_closest(&self) -> Option<&Arc<ClosestView>> {
+        if let Some(closest) = &self.closest {
+            return Some(closest);
+        }
+        // An explicitly present ordinary local value, even nil, hides its parent.
+        if self.local.contains_key("closest") {
+            return None;
+        }
+        self.parent
+            .as_ref()
+            .and_then(|parent| parent.shared_closest())
     }
     fn view(&self) -> BTreeMap<KStringCow<'_>, &dyn ValueView> {
         let mut values = BTreeMap::new();
         let mut current = Some(self);
         // Enumerate the chain once. Local keys, including nil, win by presence.
         while let Some(scope) = current {
+            if let Some(closest) = &scope.closest {
+                values
+                    .entry(KStringCow::from_ref("closest"))
+                    .or_insert_with(|| closest.as_value());
+            }
             for (key, value) in scope.local.iter() {
                 values
                     .entry(KStringCow::from_ref(key.as_str()))
@@ -640,10 +656,125 @@ impl ObjectView for ScopeOverlay {
         self.get(key).is_some()
     }
     fn get<'s>(&'s self, key: &str) -> Option<&'s dyn ValueView> {
+        if key == "closest" {
+            if let Some(closest) = &self.closest {
+                return Some(closest.as_value());
+            }
+        }
         self.local
             .get(key)
             .map(Value::as_view)
             .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(key)))
+    }
+}
+
+// Closest snapshots retain immutable platform/context parents, never runtime locals.
+// These edges point to already-existing snapshots, so the ownership graph is acyclic.
+#[derive(Debug)]
+enum ClosestParent {
+    Context(Arc<Context>),
+    Scope {
+        scope: Arc<ScopeOverlay>,
+        context: Arc<Context>,
+    },
+    Closest(Arc<ClosestView>),
+}
+
+#[derive(Debug)]
+struct ClosestView {
+    parent: ClosestParent,
+    local: Object,
+}
+
+impl ClosestView {
+    fn sharing(context: &Arc<Context>, scope: &Arc<ScopeOverlay>, local: Object) -> Arc<Self> {
+        if local.is_empty() {
+            if let Some(closest) = scope.shared_closest() {
+                return closest.clone();
+            }
+        }
+        let parent = scope
+            .shared_closest()
+            .map(|closest| ClosestParent::Closest(closest.clone()))
+            .unwrap_or_else(|| ClosestParent::Scope {
+                scope: scope.clone(),
+                context: context.clone(),
+            });
+        Arc::new(Self { parent, local })
+    }
+    fn base(&self) -> Option<&dyn ObjectView> {
+        match &self.parent {
+            ClosestParent::Context(context) => context.globals.get("closest").map(Value::as_view),
+            ClosestParent::Scope { scope, context } => scope
+                .get("closest")
+                .or_else(|| context.globals.get("closest").map(Value::as_view)),
+            ClosestParent::Closest(closest) => Some(closest.as_value()),
+        }
+        .and_then(ValueView::as_object)
+    }
+    fn view(&self) -> BTreeMap<KStringCow<'_>, &dyn ValueView> {
+        self.base()
+            .into_iter()
+            .flat_map(|base| base.iter())
+            .chain(ObjectView::iter(&self.local))
+            .collect()
+    }
+}
+
+impl ValueView for ClosestView {
+    fn as_debug(&self) -> &dyn fmt::Debug {
+        self
+    }
+    fn render(&self) -> DisplayCow<'_> {
+        DisplayCow::Owned(Box::new(self.view().render().to_string()))
+    }
+    fn source(&self) -> DisplayCow<'_> {
+        DisplayCow::Owned(Box::new(self.view().source().to_string()))
+    }
+    fn type_name(&self) -> &'static str {
+        "object"
+    }
+    fn query_state(&self, state: State) -> bool {
+        match state {
+            State::Truthy => true,
+            State::DefaultValue | State::Empty | State::Blank => self.size() == 0,
+        }
+    }
+    fn to_kstr(&self) -> KStringCow<'_> {
+        KStringCow::from_string(self.view().to_kstr().into_owned().to_string())
+    }
+    fn to_value(&self) -> Value {
+        self.view().to_value()
+    }
+    fn as_object(&self) -> Option<&dyn ObjectView> {
+        Some(self)
+    }
+}
+
+impl ObjectView for ClosestView {
+    fn as_value(&self) -> &dyn ValueView {
+        self
+    }
+    fn size(&self) -> i64 {
+        self.view().len() as i64
+    }
+    fn keys<'k>(&'k self) -> Box<dyn Iterator<Item = KStringCow<'k>> + 'k> {
+        Box::new(self.view().into_keys())
+    }
+    fn values<'k>(&'k self) -> Box<dyn Iterator<Item = &'k dyn ValueView> + 'k> {
+        Box::new(self.view().into_values())
+    }
+    fn iter<'k>(&'k self) -> Box<dyn Iterator<Item = (KStringCow<'k>, &'k dyn ValueView)> + 'k> {
+        Box::new(self.view().into_iter())
+    }
+    fn contains_key(&self, key: &str) -> bool {
+        self.get(key).is_some()
+    }
+    fn get<'s>(&'s self, key: &str) -> Option<&'s dyn ValueView> {
+        self.local
+            .get(key)
+            .map(Value::as_view)
+            .or_else(|| self.base().and_then(|base| base.get(key)))
     }
 }
 
@@ -993,25 +1124,19 @@ impl Renderable for TagNode {
             .and_then(|parent| parent.get("blocks"))
             .and_then(ValueView::as_array);
         let platform_globals = self.context.scope(runtime);
-        let platform_values = globals_view(&self.context.globals, platform_globals.as_ref());
-        let closest = arguments
-            .iter()
-            .filter(|(key, _)| key.starts_with("closest."))
-            .fold(
-                platform_values
-                    .get("closest")
-                    .and_then(|value| value.as_object().map(|object| object.to_value()))
-                    .unwrap_or_else(|| Value::Object(Object::new())),
-                |mut value, (key, item)| {
-                    if let Value::Object(object) = &mut value {
-                        object.insert(
-                            key.trim_start_matches("closest.").to_owned().into(),
-                            item.clone(),
-                        );
-                    }
-                    value
-                },
-            );
+        let keys = arguments
+            .keys()
+            .filter(|key| key.starts_with("closest."))
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut closest_overrides = Object::new();
+        for key in keys {
+            if let Some(value) = arguments.remove(key.as_str()) {
+                closest_overrides
+                    .insert(key.trim_start_matches("closest.").to_owned().into(), value);
+            }
+        }
+        let closest = ClosestView::sharing(&self.context, &platform_globals, closest_overrides);
         let locals = arguments
             .iter()
             .filter(|(key, _)| {
@@ -3876,6 +4001,80 @@ mod tests {
                 .to_kstr(),
             "old"
         );
+    }
+
+    #[test]
+    fn closest_views_share_immutable_parents_and_keep_nil_and_typed_fields() {
+        let mut host = Arc::try_unwrap(context(&[])).unwrap();
+        host.globals.insert("closest".into(),liquid_core::object!({"product":{"title":"Fixture","id":7},"collection":{"title":"Store"}}).to_value());
+        let host = Arc::new(host);
+        let root = Arc::new(ScopeOverlay::root(Object::new()));
+        let first = ClosestView::sharing(&host, &root, Object::new());
+        assert!(std::ptr::eq(
+            first.get("product").unwrap(),
+            host.globals["closest"]
+                .as_object()
+                .unwrap()
+                .get("product")
+                .unwrap()
+        ));
+        let mut scope = ScopeOverlay::child(root.clone(), Object::new());
+        scope.closest = Some(first.clone());
+        let scope = Arc::new(scope);
+        assert!(Arc::ptr_eq(
+            &first,
+            &ClosestView::sharing(&host, &scope, Object::new())
+        ));
+        let changed = ClosestView::sharing(
+            &host,
+            &scope,
+            liquid_core::object!({"product":Value::Nil,"count":3}),
+        );
+        assert!(changed.contains_key("product"));
+        assert!(changed.get("product").unwrap().is_nil());
+        assert_eq!(
+            changed
+                .keys()
+                .map(|key| key.into_owned().to_string())
+                .collect::<Vec<_>>(),
+            vec!["collection", "count", "product"]
+        );
+        assert_eq!(changed.size(), 3);
+        assert_eq!(changed.iter().count(), 3);
+        assert_eq!(changed.values().count(), 3);
+        assert_eq!(
+            changed.to_value(),
+            liquid_core::object!({"product":Value::Nil,"collection":{"title":"Store"},"count":3})
+                .to_value()
+        );
+        let view = changed.view();
+        assert_eq!(changed.render().to_string(), view.render().to_string());
+        assert_eq!(changed.source().to_string(), view.source().to_string());
+        let hidden = Arc::new(ScopeOverlay::child(
+            scope,
+            liquid_core::object!({"closest":Value::Nil}),
+        ));
+        assert!(hidden.shared_closest().is_none());
+        assert!(hidden.get("closest").unwrap().is_nil());
+        let empty = ClosestView::sharing(&host, &hidden, Object::new());
+        assert_eq!(empty.size(), 0);
+        assert!(empty.query_state(State::Empty));
+        assert!(empty.get("product").is_none());
+    }
+
+    #[test]
+    fn nested_content_for_closest_overrides_are_shared_and_siblings_stay_isolated() {
+        let host=context(&[
+            ("blocks/parent", "[{{ block.id }}/{{ closest.product.title }}/{{ closest.collection.title }}]{% content_for 'blocks', closest.product: block.settings.product %}{% schema %}{\"tag\":null}{% endschema %}"),
+            ("blocks/leaf", "{{ closest.product.title }}/{{ closest.collection.title }}/{{ private | default: 'nil' }}{% assign closest = 'shadow' %}{% assign private = 'inside' %}{% render 'probe' %}{% schema %}{\"tag\":null}{% endschema %}"),
+            ("probe", "/{{ closest.product.title }}/{{ closest.collection.title }};")]);
+        let values = liquid_core::object!({"closest":{"product":{"title":"Root"},"collection":{"title":"Store"}},"section":{"blocks":[
+            {"id":"a","type":"parent","settings":{"product":{"title":"Alpha"}},"blocks":[{"id":"la","type":"leaf","settings":{}}]},
+            {"id":"b","type":"parent","settings":{"product":{"title":"Beta"}},"blocks":[{"id":"lb","type":"leaf","settings":{}}]}
+        ]}});
+        let source =
+            "{% assign closest = 'caller-shadow' %}{% content_for 'blocks' %}{{ closest }}";
+        assert_eq!(render(host,source,values).unwrap(),"[a/Root/Store]Alpha/Store/nil/Alpha/Store;[b/Root/Store]Beta/Store/nil/Beta/Store;caller-shadow");
     }
 
     #[test]
