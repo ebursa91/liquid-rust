@@ -104,7 +104,7 @@ with the same synthetic fixture bytes and external reference pins.
 The Rust example prepares immutable source, schema, asset and parsed partial
 caches once, then creates fresh Liquid runtimes and clears stylesheet, platform
 call and executed-source state for every request. It uses `LazyCompiler` to
-retain parsed ASTs. Rendered responses are never cached. The prepared renderer
+retain parsed ASTs. Rendered responses are never cached. Immutable store values are borrowed through ObjectView maps; small Arc snapshots retain only request/platform overrides, preserving caller-assignment isolation without copying the complete store into every snippet. The prepared renderer
 accepts sequential requests; it does not establish concurrent shared-host safety.
 
 Build outside timing and run the release worker directly:
@@ -126,3 +126,8 @@ runtimes, diagnostics and both output buffers; hashing and artifact/report write
 are excluded. Process startup and cold initialization require separate external
 measurements. Debug workers identify themselves and must not be used for release
 performance claims. SHA-256 uses the already locked, dev-only `sha2` dependency.
+
+The four-mode comparison tool and its timing boundaries are documented in
+[BENCHMARKING.md](BENCHMARKING.md). It activates the standalone Ruby lockfile
+inside each worker, verifies every warm result against independent output bytes,
+and records cold CLI timings separately from warm prepared rendering.

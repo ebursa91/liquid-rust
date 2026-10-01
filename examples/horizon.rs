@@ -246,7 +246,7 @@ impl Context {
         &self,
         values: &mut Object,
         schema: &Json,
-        globals: &Object,
+        globals: &dyn ObjectView,
     ) -> Result<()> {
         bind_settings(values, globals)?;
         if let Some(definitions) = schema["settings"].as_array() {
@@ -312,11 +312,15 @@ impl Context {
             .ok_or_else(|| failure("Section requires type"))?;
         let name = format!("sections/{kind}");
         let schema = self.sources.schema(&name)?;
-        let mut globals = self.globals.clone();
+        let mut globals = Object::new();
         let mut section = liquid_core::model::to_value(&prepared)?;
         if let Value::Object(object) = &mut section {
             if let Some(Value::Object(settings)) = object.get_mut("settings") {
-                self.materialize_settings(settings, &schema, &globals)?;
+                self.materialize_settings(
+                    settings,
+                    &schema,
+                    &globals_view(&self.globals, &globals),
+                )?;
                 let closest = settings
                     .get("collection")
                     .map(|collection| liquid_core::object!({"collection":collection.clone()}))
@@ -326,8 +330,10 @@ impl Context {
         }
         globals.insert("section".into(), section);
         globals.insert("block".into(), Value::Nil);
+        let globals = Arc::new(globals);
+        let values = globals_view(&self.globals, globals.as_ref());
         let inner = RuntimeBuilder::new()
-            .set_globals(&globals)
+            .set_globals(&values)
             .set_partials(partials)
             .build();
         set_platform_bindings(&inner, &globals);
@@ -448,10 +454,8 @@ impl Context {
         )
     }
 
-    fn scope(&self, runtime: &dyn Runtime) -> Object {
-        let mut globals = self.globals.clone();
-        globals.extend(runtime.registers().get_mut::<PlatformBindings>().0.clone());
-        globals
+    fn scope(&self, runtime: &dyn Runtime) -> Arc<Object> {
+        runtime.registers().get_mut::<PlatformBindings>().0.clone()
     }
 
     fn render_block(
@@ -477,23 +481,24 @@ impl Context {
             .into_owned();
         let name = format!("blocks/{kind}");
         let schema = self.sources.schema(&name)?;
-        let mut globals = self.scope(runtime);
+        let mut globals = self.scope(runtime).as_ref().clone();
         if let Some(closest) = closest {
             globals.insert("closest".into(), closest);
         }
         if let Value::Object(object) = &mut block {
             if let Some(Value::Object(settings)) = object.get_mut("settings") {
-                self.materialize_settings(settings, &schema, &globals)?;
+                self.materialize_settings(
+                    settings,
+                    &schema,
+                    &globals_view(&self.globals, &globals),
+                )?;
             }
         }
         globals.insert("block".into(), block);
-        // Initial locals can be reassigned; nested renders retain the separate static platform snapshot.
-        let mut values = globals.clone();
-        values.extend(
-            locals
-                .iter()
-                .map(|(key, value)| (key.clone(), value.clone())),
-        );
+        // Borrow immutable fixture values; runtime assignments stay in the request GlobalFrame.
+        let globals = Arc::new(globals);
+        let platform_values = globals_view(&self.globals, globals.as_ref());
+        let values = globals_view(&platform_values, locals);
         let inner = RuntimeBuilder::new()
             .set_globals(&values)
             .set_partials(runtime.partials())
@@ -526,12 +531,20 @@ impl Context {
     }
 }
 
+// Request bindings contain only overrides of the immutable fixture globals. Sharing this
+// snapshot preserves the platform environment across isolated snippets without copying the store.
 #[derive(Default)]
-struct PlatformBindings(Object);
+struct PlatformBindings(Arc<Object>);
 
-fn set_platform_bindings(runtime: &dyn Runtime, globals: &Object) {
-    // Preserve the static environment; caller assigns and outer keyword locals remain isolated.
+fn set_platform_bindings(runtime: &dyn Runtime, globals: &Arc<Object>) {
     runtime.registers().get_mut::<PlatformBindings>().0 = globals.clone();
+}
+
+fn globals_view<'a>(
+    base: &'a dyn ObjectView,
+    overrides: &'a dyn ObjectView,
+) -> BTreeMap<KStringCow<'a>, &'a dyn ValueView> {
+    base.iter().chain(overrides.iter()).collect()
 }
 
 fn merge(target: &mut Json, overrides: &Json) {
@@ -579,12 +592,11 @@ fn wrapper_class(prefix: &str, schema: &Json) -> String {
         .unwrap_or_else(|| prefix.to_owned())
 }
 
-fn bind_settings(settings: &mut Object, globals: &Object) -> Result<()> {
+fn bind_settings(settings: &mut Object, globals: &dyn ObjectView) -> Result<()> {
     let pattern = regex::Regex::new(r"\{\{\s*([\w.]+)\s*\}\}").map_err(failure)?;
-    let mut root = globals.clone();
-    root.entry("settings")
-        .or_insert_with(|| Value::Object(settings.clone()));
-    let root = Value::Object(root);
+    let fallback = Value::Object(settings.clone());
+    let mut root = globals.iter().collect::<BTreeMap<_, _>>();
+    root.entry("settings".into()).or_insert(&fallback);
     for (_, value) in settings.iter_mut() {
         let Some(text) = value.as_scalar().and_then(|value| {
             value
@@ -693,7 +705,8 @@ impl Runtime for FixtureRuntime<'_> {
                     return Some(ValueCow::Owned(field.clone()));
                 }
             }
-            let color = Color::parse(value.to_kstr().as_str()).ok()?;
+            let scalar = value.as_scalar()?;
+            let color = Color::parse(scalar.to_kstr().as_str()).ok()?;
             let value = match property.to_kstr().as_str() {
                 "rgb" => Value::scalar(color.rgb()),
                 "rgba" => Value::scalar(format!("{} / {}", color.rgb(), ruby_float(color.alpha))),
@@ -801,8 +814,8 @@ impl Renderable for TagNode {
         }
         if self.name == "render" {
             let globals = self.context.scope(runtime);
-            let mut values = globals.clone();
-            values.extend(arguments);
+            let platform_values = globals_view(&self.context.globals, globals.as_ref());
+            let values = globals_view(&platform_values, &arguments);
             let inner = RuntimeBuilder::new()
                 .set_globals(&values)
                 .set_partials(runtime.partials())
@@ -834,11 +847,12 @@ impl Renderable for TagNode {
             .and_then(|parent| parent.get("blocks"))
             .and_then(ValueView::as_array);
         let platform_globals = self.context.scope(runtime);
+        let platform_values = globals_view(&self.context.globals, platform_globals.as_ref());
         let closest = arguments
             .iter()
             .filter(|(key, _)| key.starts_with("closest."))
             .fold(
-                platform_globals
+                platform_values
                     .get("closest")
                     .and_then(|value| value.as_object().map(|object| object.to_value()))
                     .unwrap_or_else(|| Value::Object(Object::new())),
@@ -1271,7 +1285,13 @@ fn fixture_font(input: &dyn ValueView) -> Result<Object> {
                 .collect());
         }
     }
-    let handle = input.to_kstr();
+    let scalar = input.as_scalar().ok_or_else(|| {
+        failure(format!(
+            "Unsupported fixture font type: {}",
+            input.type_name()
+        ))
+    })?;
+    let handle = scalar.to_kstr();
     let weight = match handle.as_str() {
         "inter_n4" => 400,
         "inter_n5" => 500,
@@ -2166,15 +2186,17 @@ impl Renderer {
         }
         if error.is_none() && scope == "page" {
             let render = (|| -> Result<Vec<u8>> {
-                let mut globals = context.globals.clone();
+                let mut globals = Object::new();
                 let body = String::from_utf8(html.clone()).map_err(failure)?;
                 globals.insert("content_for_layout".into(), Value::scalar(body));
                 globals.insert(
                     "content_for_header".into(),
                     Value::scalar("<!-- horizon-fixture-stylesheets -->"),
                 );
+                let globals = Arc::new(globals);
+                let values = globals_view(&context.globals, globals.as_ref());
                 let runtime = RuntimeBuilder::new()
-                    .set_globals(&globals)
+                    .set_globals(&values)
                     .set_partials(partials.as_ref())
                     .build();
                 set_platform_bindings(&runtime, &globals);
@@ -2432,8 +2454,9 @@ mod tests {
     fn render(context: Arc<Context>, source: &str, values: Object) -> Result<String> {
         let language = language(context.clone())?;
         let partials = OnDemandCompiler::new(context.sources.clone()).compile(language.clone())?;
+        let values = Arc::new(values);
         let runtime = RuntimeBuilder::new()
-            .set_globals(&values)
+            .set_globals(values.as_ref())
             .set_partials(partials.as_ref())
             .build();
         set_platform_bindings(&runtime, &values);
@@ -2775,5 +2798,122 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("--warmup"));
+    }
+    #[test]
+    fn borrowed_global_view_shares_store_values_and_keeps_explicit_nil_overrides() {
+        let base = liquid_core::object!({"shop":{"name":"Original"},"optional":{"present":true}});
+        let overrides = liquid_core::object!({"optional":Value::Nil,"new":"request"});
+        let view = globals_view(&base, &overrides);
+        assert!(std::ptr::eq(
+            *view.get("shop").unwrap(),
+            base.get("shop").unwrap().as_view()
+        ));
+        assert!(view.get("optional").unwrap().is_nil());
+        assert_eq!(view.get("new").unwrap().to_kstr(), "request");
+        let runtime = RuntimeBuilder::new().set_globals(&view).build();
+        runtime.set_global("shop".into(), Value::scalar("assigned"));
+        assert_eq!(runtime.get(&["shop".into()]).unwrap().to_kstr(), "assigned");
+        assert_eq!(
+            base["shop"]
+                .as_object()
+                .unwrap()
+                .get("name")
+                .unwrap()
+                .to_kstr(),
+            "Original"
+        );
+        assert!(runtime
+            .try_get(&["optional".into(), "present".into()])
+            .is_none());
+    }
+
+    // Detect accidental formatting of large optional objects without timing assertions.
+    #[derive(Debug)]
+    struct NoString(Value);
+
+    impl ValueView for NoString {
+        fn as_debug(&self) -> &dyn fmt::Debug {
+            self
+        }
+        fn render(&self) -> DisplayCow<'_> {
+            self.0.render()
+        }
+        fn source(&self) -> DisplayCow<'_> {
+            self.0.source()
+        }
+        fn type_name(&self) -> &'static str {
+            self.0.type_name()
+        }
+        fn query_state(&self, state: State) -> bool {
+            self.0.query_state(state)
+        }
+        fn to_kstr(&self) -> KStringCow<'_> {
+            panic!("optional compound values must not be stringified")
+        }
+        fn to_value(&self) -> Value {
+            self.0.clone()
+        }
+        fn as_object(&self) -> Option<&dyn ObjectView> {
+            self.0.as_object()
+        }
+        fn as_array(&self) -> Option<&dyn liquid_core::model::ArrayView> {
+            self.0.as_array()
+        }
+        fn is_nil(&self) -> bool {
+            self.0.is_nil()
+        }
+    }
+
+    #[test]
+    fn optional_compound_properties_do_not_stringify_store_values() {
+        for value in [
+            Value::Object(liquid_core::object!({"present":"kept"})),
+            Value::Array(vec![Value::scalar("item")]),
+            Value::Nil,
+        ] {
+            let probe = NoString(value);
+            assert!(fixture_font(&probe).is_err());
+            let globals = BTreeMap::from([("probe".to_owned(), &probe)]);
+            let inner = RuntimeBuilder::new().set_globals(&globals).build();
+            let palette = vec![];
+            let runtime = FixtureRuntime {
+                inner: &inner,
+                name: "probe",
+                palette: &palette,
+            };
+            assert!(runtime
+                .get(&["probe".into(), "unavailable".into()])
+                .unwrap()
+                .is_nil());
+        }
+    }
+
+    #[test]
+    fn scalar_colors_and_font_objects_keep_platform_properties() {
+        let font = fixture_font(&Value::scalar("inter_n4")).unwrap();
+        assert_eq!(font["family"], Value::scalar("Arial"));
+        assert_eq!(fixture_font(&Value::Object(font.clone())).unwrap(), font);
+        let globals = liquid_core::object!({"color":"#102030","font":"inter_n4","modified":font,"ordinary":{"family":"data field"}});
+        let inner = RuntimeBuilder::new().set_globals(&globals).build();
+        let palette = vec![];
+        let runtime = FixtureRuntime {
+            inner: &inner,
+            name: "probe",
+            palette: &palette,
+        };
+        for (root, property, expected) in [
+            ("color", "rgb", Value::scalar("16 32 48")),
+            ("font", "system?", Value::scalar(true)),
+            ("modified", "weight", Value::scalar(400)),
+            ("ordinary", "family", Value::scalar("data field")),
+        ] {
+            assert_eq!(
+                runtime
+                    .get(&[root.into(), property.into()])
+                    .unwrap()
+                    .into_owned(),
+                expected
+            );
+        }
     }
 }
