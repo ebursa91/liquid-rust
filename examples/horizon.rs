@@ -346,7 +346,7 @@ impl Context {
         }
         globals.insert("section".into(), section);
         globals.insert("block".into(), Value::Nil);
-        let globals = Arc::new(globals);
+        let globals = Arc::new(ScopeOverlay::root(globals));
         let values = globals_view(&self.globals, globals.as_ref());
         let inner = RuntimeBuilder::new()
             .set_globals(&values)
@@ -475,7 +475,7 @@ impl Context {
         )
     }
 
-    fn scope(&self, runtime: &dyn Runtime) -> Arc<Object> {
+    fn scope(&self, runtime: &dyn Runtime) -> Arc<ScopeOverlay> {
         runtime.registers().get_mut::<PlatformBindings>().0.clone()
     }
 
@@ -502,9 +502,9 @@ impl Context {
             .into_owned();
         let name = format!("blocks/{kind}");
         let schema = self.sources.schema(&name)?;
-        let mut globals = self.scope(runtime).as_ref().clone();
+        let mut globals = ScopeOverlay::child(self.scope(runtime), Object::new());
         if let Some(closest) = closest {
-            globals.insert("closest".into(), closest);
+            globals.local.insert("closest".into(), closest);
         }
         if let Value::Object(object) = &mut block {
             if let Some(Value::Object(settings)) = object.get_mut("settings") {
@@ -515,7 +515,7 @@ impl Context {
                 )?;
             }
         }
-        globals.insert("block".into(), block);
+        globals.local.insert("block".into(), block);
         // Borrow immutable fixture values; runtime assignments stay in the request GlobalFrame.
         let globals = Arc::new(globals);
         let platform_values = globals_view(&self.globals, globals.as_ref());
@@ -553,12 +553,106 @@ impl Context {
     }
 }
 
+// A request-local immutable parent chain retains platform bindings without copying
+// enclosing section/block/closest values. Keywords and assignments never enter it.
+#[derive(Debug, Default)]
+struct ScopeOverlay {
+    parent: Option<Arc<ScopeOverlay>>,
+    local: Object,
+}
+
+impl ScopeOverlay {
+    fn root(local: Object) -> Self {
+        Self {
+            parent: None,
+            local,
+        }
+    }
+    fn child(parent: Arc<Self>, local: Object) -> Self {
+        Self {
+            parent: Some(parent),
+            local,
+        }
+    }
+    fn view(&self) -> BTreeMap<KStringCow<'_>, &dyn ValueView> {
+        let mut values = BTreeMap::new();
+        let mut current = Some(self);
+        // Enumerate the chain once. Local keys, including nil, win by presence.
+        while let Some(scope) = current {
+            for (key, value) in scope.local.iter() {
+                values
+                    .entry(KStringCow::from_ref(key.as_str()))
+                    .or_insert_with(|| value.as_view());
+            }
+            current = scope.parent.as_deref();
+        }
+        values
+    }
+}
+
+impl ValueView for ScopeOverlay {
+    fn as_debug(&self) -> &dyn fmt::Debug {
+        self
+    }
+    fn render(&self) -> DisplayCow<'_> {
+        DisplayCow::Owned(Box::new(self.view().render().to_string()))
+    }
+    fn source(&self) -> DisplayCow<'_> {
+        DisplayCow::Owned(Box::new(self.view().source().to_string()))
+    }
+    fn type_name(&self) -> &'static str {
+        "object"
+    }
+    fn query_state(&self, state: State) -> bool {
+        match state {
+            State::Truthy => true,
+            State::DefaultValue | State::Empty | State::Blank => self.size() == 0,
+        }
+    }
+    fn to_kstr(&self) -> KStringCow<'_> {
+        KStringCow::from_string(self.view().to_kstr().into_owned().to_string())
+    }
+    fn to_value(&self) -> Value {
+        self.view().to_value()
+    }
+    fn as_object(&self) -> Option<&dyn ObjectView> {
+        Some(self)
+    }
+}
+
+impl ObjectView for ScopeOverlay {
+    fn as_value(&self) -> &dyn ValueView {
+        self
+    }
+    fn size(&self) -> i64 {
+        self.view().len() as i64
+    }
+    fn keys<'k>(&'k self) -> Box<dyn Iterator<Item = KStringCow<'k>> + 'k> {
+        Box::new(self.view().into_keys())
+    }
+    fn values<'k>(&'k self) -> Box<dyn Iterator<Item = &'k dyn ValueView> + 'k> {
+        Box::new(self.view().into_values())
+    }
+    fn iter<'k>(&'k self) -> Box<dyn Iterator<Item = (KStringCow<'k>, &'k dyn ValueView)> + 'k> {
+        Box::new(self.view().into_iter())
+    }
+    fn contains_key(&self, key: &str) -> bool {
+        self.get(key).is_some()
+    }
+    fn get<'s>(&'s self, key: &str) -> Option<&'s dyn ValueView> {
+        self.local
+            .get(key)
+            .map(Value::as_view)
+            .or_else(|| self.parent.as_ref().and_then(|parent| parent.get(key)))
+    }
+}
+
 // Request bindings contain only overrides of the immutable fixture globals. Sharing this
 // snapshot preserves the platform environment across isolated snippets without copying the store.
 #[derive(Default)]
-struct PlatformBindings(Arc<Object>);
+struct PlatformBindings(Arc<ScopeOverlay>);
 
-fn set_platform_bindings(runtime: &dyn Runtime, globals: &Arc<Object>) {
+fn set_platform_bindings(runtime: &dyn Runtime, globals: &Arc<ScopeOverlay>) {
     runtime.registers().get_mut::<PlatformBindings>().0 = globals.clone();
 }
 
@@ -2853,7 +2947,7 @@ impl Renderer {
                     "content_for_header".into(),
                     Value::scalar("<!-- horizon-fixture-stylesheets -->"),
                 );
-                let globals = Arc::new(globals);
+                let globals = Arc::new(ScopeOverlay::root(globals));
                 let values = globals_view(&context.globals, globals.as_ref());
                 let runtime = RuntimeBuilder::new()
                     .set_globals(&values)
@@ -3722,7 +3816,7 @@ mod tests {
     fn render(context: Arc<Context>, source: &str, values: Object) -> Result<String> {
         let language = language(context.clone())?;
         let partials = OnDemandCompiler::new(context.sources.clone()).compile(language.clone())?;
-        let values = Arc::new(values);
+        let values = Arc::new(ScopeOverlay::root(values));
         let runtime = RuntimeBuilder::new()
             .set_globals(values.as_ref())
             .set_partials(partials.as_ref())
@@ -3735,6 +3829,53 @@ mod tests {
             focal_points: &context.focal_points,
         };
         Template::new(liquid_core::parser::parse(source, &language)?).render(&runtime)
+    }
+
+    #[test]
+    fn immutable_scope_overlay_borrows_parents_and_nil_shadows_present_values() {
+        let root = Arc::new(ScopeOverlay::root(
+            liquid_core::object!({"section":{"id":"parent","blocks":[{"id":"child"}]},"block":{"id":"old"},"closest":{"product":{"title":"Original"}}}),
+        ));
+        let child = ScopeOverlay::child(
+            root.clone(),
+            liquid_core::object!({"block":{"id":"new"},"closest":Value::Nil,"extra":7}),
+        );
+        assert!(std::ptr::eq(
+            child.get("section").unwrap(),
+            root.get("section").unwrap()
+        ));
+        assert!(child.get("closest").unwrap().is_nil());
+        assert!(child.contains_key("closest"));
+        assert_eq!(child.size(), 4);
+        assert_eq!(
+            child
+                .keys()
+                .map(|key| key.into_owned().to_string())
+                .collect::<Vec<_>>(),
+            vec!["block", "closest", "extra", "section"]
+        );
+        assert_eq!(child.iter().count(), 4);
+        assert_eq!(child.values().count(), 4);
+        let expected = liquid_core::object!({"section":{"id":"parent","blocks":[{"id":"child"}]},"block":{"id":"new"},"closest":Value::Nil,"extra":7});
+        assert_eq!(child.to_value(), expected.to_value());
+        let sorted = ObjectView::iter(&root.local)
+            .chain(ObjectView::iter(&child.local))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(child.render().to_string(), sorted.render().to_string());
+        assert_eq!(child.source().to_string(), sorted.source().to_string());
+        assert_eq!(child.to_kstr(), sorted.to_kstr());
+        assert!(child.query_state(State::Truthy));
+        assert!(!child.query_state(State::Empty));
+        assert_eq!(
+            root.get("block")
+                .unwrap()
+                .as_object()
+                .unwrap()
+                .get("id")
+                .unwrap()
+                .to_kstr(),
+            "old"
+        );
     }
 
     #[test]
