@@ -1,6 +1,6 @@
 # Final shared-context HTTP throughput, 2026-10-01
 
-The default release Rust host with shared scopes/closest measured **35.75 verified RPS** at four closed-loop clients. Ruby 4.0.7 YJIT measured **33.60 RPS**. All hosts freshly rendered the same original prepared four-product Horizon homepage into identical bytes. [Complete numeric samples and accounting](results/2026-10-01-deep-rps.json) retain every window, latency sample, source/binary fingerprint and failure. Implementation: Rust `ecd9ee44212d95ac70dec90fa21b4aa0c99b4d6c`; unchanged Ruby engine `7db1cc962c1a90a40613da98fdff18f061680bb8`.
+The default release Rust host with shared scopes/closest measured **35.75 verified RPS** at four closed-loop clients. Ruby 4.0.7 YJIT measured **33.60 RPS**. All hosts freshly rendered the same original prepared four-product Horizon homepage into identical bytes. [Complete numeric samples and accounting](results/2026-10-01-deep-rps.json) retain every window, all reported completed-response latency samples, outcome counts and source/binary fingerprints. Timeout latencies are retained as per-window counts and percentiles. Implementation: Rust `ecd9ee44212d95ac70dec90fa21b4aa0c99b4d6c`; unchanged Ruby engine `7db1cc962c1a90a40613da98fdff18f061680bb8`.
 
 RPS counts independently verified successful HTTP responses completed inside a nominal 20-second window, divided by 20. Tables report medians of three fresh-pool batch rates, with all batch ranges retained. Closed-loop p95 pools request latencies across the corresponding three windows, including drain. Shared-host scheduling is visible; these results do not rank languages generally or establish a Fiber advantage.
 
@@ -40,7 +40,7 @@ Reproduce with [the fork's HTTP harness and method](https://github.com/ebursa91/
 
 The release Rust host with compiled regex reuse reached **25.85 verified RPS** at four closed-loop clients. Ruby 4.0.7 YJIT reached **28.90 RPS**; its Fiber wrapper reached **34.05 RPS** in this run. All hosts rendered the same original synthetic homepage into exactly the same bytes. This shared-host experiment compares configured hosts, not languages generally. It does not establish a Fiber speed advantage.
 
-[Complete numeric samples and accounting](results/2026-10-01-rps-after.json) retain every batch and latency sample. Rust implementation: `a468a7ac18155f98fb9fe51881eafac50bae8105`; Ruby: `7db1cc962c1a90a40613da98fdff18f061680bb8`. The data service is excluded: this experiment uses the original prepared offline fixture.
+[Complete numeric samples and accounting](results/2026-10-01-rps-after.json) retain every batch’s reported completed-response samples, timeout percentiles and outcome counts. Rust implementation: `a468a7ac18155f98fb9fe51881eafac50bae8105`; Ruby: `7db1cc962c1a90a40613da98fdff18f061680bb8`. The data service is excluded: this experiment uses the original prepared offline fixture.
 
 ## Closed-loop results
 
