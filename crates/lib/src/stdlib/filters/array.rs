@@ -296,6 +296,47 @@ struct FindIndexFilter {
     args: FindIndexArgs,
 }
 
+#[derive(Clone, ParseFilter, FilterReflection)]
+#[filter(
+    name = "has",
+    description = "Returns whether any item has the requested property value. \
+                   Without a target value, matches any truthy property.",
+    parameters(FindIndexArgs),
+    parsed(HasFilter)
+)]
+pub struct Has;
+
+#[derive(Debug, FromFilterParameters, Display_filter)]
+#[name = "has"]
+struct HasFilter {
+    #[parameters]
+    args: FindIndexArgs,
+}
+
+impl Filter for HasFilter {
+    fn evaluate(&self, input: &dyn ValueView, runtime: &dyn Runtime) -> Result<Value> {
+        let args = self.args.evaluate(runtime)?;
+        let target = args.target_value.as_ref().filter(|value| !value.is_nil());
+        for item in flattened_sequence(input) {
+            let Some(value) = find_index_property(item, args.property.as_view())? else {
+                // Ruby returns nil for a non-indexable item, even for this boolean filter.
+                return Ok(Value::Nil);
+            };
+            let matches = match target {
+                Some(target) => find_index_equal(value.as_view(), target.as_view()),
+                None => {
+                    !value.is_nil()
+                        && value.as_scalar().and_then(|value| value.to_bool()) != Some(false)
+                }
+            };
+            if matches {
+                return Ok(Value::scalar(true));
+            }
+        }
+        Ok(Value::scalar(false))
+    }
+}
+
 // Ruby's InputIterator flattens nested arrays, while treating objects as one item.
 fn flattened_sequence(input: &dyn ValueView) -> impl Iterator<Item = &dyn ValueView> {
     let mut iterators = vec![as_sequence(input)];

@@ -79,6 +79,7 @@ where
             .filter(stdlib::FindIndex)
             .filter(stdlib::First)
             .filter(stdlib::Floor)
+            .filter(stdlib::Has)
             .filter(stdlib::Join)
             .filter(stdlib::Last)
             .filter(stdlib::Lstrip)
