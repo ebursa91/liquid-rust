@@ -7,7 +7,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use std::time::Instant;
 
 use liquid::reflection::ParserReflection;
@@ -615,7 +615,9 @@ fn wrapper_class(prefix: &str, schema: &Json) -> String {
 }
 
 fn bind_settings(settings: &mut Object, globals: &dyn ObjectView) -> Result<()> {
-    let pattern = regex::Regex::new(r"\{\{\s*([\w.]+)\s*\}\}").map_err(failure)?;
+    static PATTERN: LazyLock<std::result::Result<regex::Regex, regex::Error>> =
+        LazyLock::new(|| regex::Regex::new(r"\{\{\s*([\w.]+)\s*\}\}"));
+    let pattern = PATTERN.as_ref().map_err(failure)?;
     let fallback = Value::Object(settings.clone());
     let mut root = globals.iter().collect::<BTreeMap<_, _>>();
     root.entry("settings".into()).or_insert(&fallback);
@@ -1927,7 +1929,9 @@ impl Filter for FilterNode {
                 let text = text
                     .as_str()
                     .ok_or_else(|| failure("Fixture translation must be scalar"))?;
-                let matcher = regex::Regex::new(r"\{\{\s*(\w+)\s*\}\}").map_err(failure)?;
+                static MATCHER: LazyLock<std::result::Result<regex::Regex, regex::Error>> =
+                    LazyLock::new(|| regex::Regex::new(r"\{\{\s*(\w+)\s*\}\}"));
+                let matcher = MATCHER.as_ref().map_err(failure)?;
                 Ok(Value::scalar(
                     matcher
                         .replace_all(text, |captures: &regex::Captures<'_>| {
@@ -3889,6 +3893,34 @@ mod tests {
         assert_eq!(settings["foreground"], Value::scalar("#123456"));
         assert_eq!(settings["count"], Value::scalar(4));
         assert_eq!(settings["text"], Value::scalar("Count 4"));
+    }
+
+    #[test]
+    fn setting_bindings_preserve_unicode_paths_whitespace_and_missing_values() {
+        let globals = liquid_core::object!({"catalog":{"café":7}});
+        for _ in 0..2 {
+            let mut settings = liquid_core::object!({"count":"{{\u{a0}catalog.café\u{a0}}}","text":"Count {{ catalog.café }}; {{ missing }}"});
+            bind_settings(&mut settings, &globals).unwrap();
+            assert_eq!(settings["count"], Value::scalar(7));
+            assert_eq!(settings["text"], Value::scalar("Count 7; "));
+        }
+    }
+
+    #[test]
+    fn translation_captures_preserve_unicode_whitespace_and_unknown_parameters() {
+        let source = "{{ 'message' | t: name: name }}";
+        let mut host = Arc::try_unwrap(context(&[("translation", source)])).unwrap();
+        host.locales = json!({"message":"Hello, {{\u{a0}name\u{a0}}}! {{ missing }}"});
+        let host = Arc::new(host);
+        for (name, expected) in [
+            ("Björk", "Hello, Björk! {{ missing }}"),
+            ("Żaneta", "Hello, Żaneta! {{ missing }}"),
+        ] {
+            assert_eq!(
+                render(host.clone(), source, liquid_core::object!({"name":name})).unwrap(),
+                expected
+            );
+        }
     }
 
     #[test]
