@@ -292,24 +292,18 @@ pub(crate) fn value_eq(lhs: &dyn ValueView, rhs: &dyn ValueView) -> bool {
         return lhs.query_state(state);
     }
 
+    // Ruby equality distinguishes nil from false, although both are falsy.
+    // State comparisons above retain Liquid's special `nil == blank` behavior.
+    if lhs.is_nil() || rhs.is_nil() {
+        return false;
+    }
+
     match (lhs.as_scalar(), rhs.as_scalar()) {
         (Some(x), Some(y)) => return x == y,
         (None, None) => (),
         // encode Ruby truthiness: all values except false and nil are true
-        (Some(x), _) => {
-            if rhs.is_nil() {
-                return !x.to_bool().unwrap_or(true);
-            } else {
-                return x.to_bool().unwrap_or(false);
-            }
-        }
-        (_, Some(x)) => {
-            if lhs.is_nil() {
-                return !x.to_bool().unwrap_or(true);
-            } else {
-                return x.to_bool().unwrap_or(false);
-            }
-        }
+        (Some(x), _) => return x.to_bool().unwrap_or(false),
+        (_, Some(x)) => return x.to_bool().unwrap_or(false),
     }
 
     false

@@ -42,17 +42,40 @@ impl Filter for SplitFilter {
 
         let input = input.to_kstr();
 
-        if input.is_empty() {
-            Ok(Value::Array(Vec::new()))
+        let pattern = args.pattern.as_str();
+        let fields = if pattern.is_empty() {
+            input
+                .chars()
+                .map(|character| Value::scalar(character.to_string()))
+                .collect()
+        } else if pattern == " " {
+            // Ruby String#split treats one ASCII space as a whitespace separator.
+            input
+                .split(|character| {
+                    matches!(
+                        character,
+                        ' ' | '\t' | '\r' | '\n' | '\u{000b}' | '\u{000c}'
+                    )
+                })
+                .filter(|field| !field.is_empty())
+                .map(|field| Value::scalar(field.to_owned()))
+                .collect()
         } else {
-            // Split and construct resulting Array
-            Ok(Value::Array(
-                input
-                    .split(args.pattern.as_str())
-                    .map(|s| Value::scalar(s.to_owned()))
-                    .collect(),
-            ))
-        }
+            let mut fields = Vec::new();
+            let mut pending_empty = 0;
+            for field in input.split(pattern) {
+                if field.is_empty() {
+                    pending_empty += 1;
+                } else {
+                    // Keep leading/interior empty fields; discard trailing ones.
+                    fields.extend((0..pending_empty).map(|_| Value::scalar("")));
+                    fields.push(Value::scalar(field.to_owned()));
+                    pending_empty = 0;
+                }
+            }
+            fields
+        };
+        Ok(Value::Array(fields))
     }
 }
 

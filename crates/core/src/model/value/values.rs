@@ -145,7 +145,7 @@ impl ValueView for Value {
             Value::Nil => match state {
                 State::Truthy => false,
                 State::DefaultValue => true,
-                State::Empty => true,
+                State::Empty => false,
                 State::Blank => true,
             },
         }
@@ -418,12 +418,21 @@ mod test {
 
     #[test]
     fn nils_have_ruby_truthiness() {
-        assert_eq!(Value::scalar(false), Value::Nil);
         assert!(!Value::Nil.query_state(State::Truthy));
-
-        assert_eq!(Value::scalar(false), Value::Nil);
+        assert!(!Value::scalar(false).query_state(State::Truthy));
+        assert_ne!(Value::scalar(false), Value::Nil);
+        assert_ne!(Value::Nil, Value::scalar(false));
         assert!(Value::scalar(true) != Value::Nil);
         assert!(Value::scalar("") != Value::Nil);
+    }
+
+    #[test]
+    fn nil_is_blank_but_not_empty() {
+        assert!(Value::Nil.query_state(State::Blank));
+        assert!(!Value::Nil.query_state(State::Empty));
+        assert_ne!(Value::Nil, Value::State(State::Empty));
+        assert_ne!(Value::State(State::Empty), Value::Nil);
+        assert_eq!(Value::Nil, Value::State(State::Blank));
     }
 
     #[test]
