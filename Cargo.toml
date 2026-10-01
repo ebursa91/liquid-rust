@@ -16,6 +16,7 @@ include = [
   "Cargo.lock",
   "LICENSE*",
   "README.md",
+  "docs/**/*",
   "examples/**/*"
 ]
 
@@ -138,21 +139,19 @@ serde = { version = "1.0.157", features = ["derive"] }
 tracing = { version = "0.1.44", default-features = false, features = ["std"], optional = true }
 
 [dev-dependencies]
-tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry", "std"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["registry", "std", "fmt"] }
 serde_yaml = "0.8.26"
 tera = { version = "1.19", default-features = false }
 handlebars = "6.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-md5 = "0.8.0"
-sha2 = "0.10.8"
 regex = "1.10"
 criterion = "0.8"
 snapbox = "1.0.0"
 
 [[example]]
-name = "horizon"
-required-features = ["stdlib"]
+name = "profiling"
+required-features = ["profiling", "stdlib"]
 test = true
 
 [[bench]]

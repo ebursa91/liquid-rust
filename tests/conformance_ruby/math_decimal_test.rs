@@ -1,5 +1,5 @@
 //! Original cases checked against Shopify Liquid 5.14.0 (4e39ae4).
-//! Horizon multiplies font sizes by the decimal line-height factor 1.6.
+//! Decimal operands must avoid binary multiplication roundoff.
 
 use liquid_core::{Value, ValueView};
 use liquid_lib::stdlib::Times;
@@ -27,7 +27,7 @@ fn times_multiplies_decimal_representations() {
 }
 
 #[test]
-fn times_renders_horizon_font_line_height_without_binary_roundoff() {
+fn times_renders_decimal_products_without_binary_roundoff() {
     assert_template_result!(
         "5.6|4.8|4.0|0.02|-5.6|5.6|56|0.0|-0.0",
         "{{ 3.5 | times: 1.6 }}|{{ 3.0 | times: 1.6 }}|{{ 2.5 | times: 1.6 }}|{{ 0.1 | times: 0.2 }}|{{ -3.5 | times: 1.6 }}|{{ '3.5' | times: '1.6' }}|{{ 7 | times: 8 }}|{{ nil | times: 1.6 }}|{{ -2.5 | times: nil }}",

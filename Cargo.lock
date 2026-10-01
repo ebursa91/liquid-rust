@@ -652,13 +652,11 @@ dependencies = [
  "liquid-core",
  "liquid-derive",
  "liquid-lib",
- "md5",
  "regex",
  "serde",
  "serde_derive",
  "serde_json",
  "serde_yaml",
- "sha2",
  "snapbox",
  "tera",
  "tracing",
@@ -732,12 +730,6 @@ name = "log"
 version = "0.4.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90ed8c1e510134f979dbc4f070f87d4313098b704861a105fe34231c70a3901c"
-
-[[package]]
-name = "md5"
-version = "0.8.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ebb8d8732c6a6df3d8f032a82911cfc747e00efb95cc46e8d0acd5b5b88570c"
 
 [[package]]
 name = "memchr"

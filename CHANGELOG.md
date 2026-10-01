@@ -11,20 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Support liquid, echo and inline comments, ASCII tag whitespace and question-mark property lookup.
 - Support the default filter allow_false keyword.
-- Implement find_index with Ruby property, flattening and typed equality semantics.
+- Implement find_index and has with Ruby property, flattening and typed equality semantics.
 - Add opt-in optional variable expression lookup across runtime frames; strict lookup remains the default.
+- Add a default-preserving runtime hook for projecting evaluated expression values.
+- Add optional application-owned tracing spans for templates, nodes, filters and lookups.
 
 ### Fixes
 
 - Keep literal-prefix variable names and property selectors distinct from literal values.
 - Match Ruby Liquid right-associated and/or conditions.
+- Preserve silent side effects while trimming statically blank control-flow output.
+- Distinguish nil from false and the empty state while preserving blank comparisons.
+- Match Ruby Liquid trailing whitespace and empty string splitting.
 - Render integral floats, signed zero and scientific exponents in Ruby style.
 - Multiply fractional decimal operands before converting to a float.
 - Preserve selected numeric clamp types and coerce nil multiplication operands to zero.
-
-### Internal
-
-- Add a synthetic Horizon storefront JSON, independent Ruby/Rust mock hosts and exact local rendering comparison.
 
 ## [0.26.11] - 2025-02-04
 

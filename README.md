@@ -49,10 +49,9 @@ let output = template.render(&globals).unwrap();
 assert_eq!(output, "Liquid! 2.0".to_string());
 ```
 
-A local [Horizon mock-store example](compat/horizon/README.md) renders the same
-synthetic JSON with pinned Ruby Liquid and Rust and compares their exact HTML/CSS.
-Opt-in [render profiling](compat/horizon/PROFILING.md) identifies template, node, filter,
-lookup and platform-adapter costs while keeping instrumentation out of default builds.
+Opt-in [render profiling](docs/profiling.md) emits template, node, filter and lookup
+spans to an application-owned tracing subscriber. Default builds compile out the
+instrumentation.
 
 You can find a reference on Liquid syntax [here](https://github.com/Shopify/liquid/wiki/Liquid-for-Designers).
 

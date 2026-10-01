@@ -1,5 +1,5 @@
 //! Original cases checked against Shopify Liquid 5.14.0 (4e39ae4).
-//! Horizon uses string properties for font sizes and object properties for blocks.
+//! Cover scalar values and object properties in rendered filter chains.
 
 use liquid_core::Value;
 use liquid_lib::stdlib::FindIndex;
@@ -279,7 +279,7 @@ fn find_index_rejects_invalid_properties_and_arity() {
 }
 
 #[test]
-fn find_index_renders_horizon_font_sizes_and_block_ids() {
+fn find_index_renders_scalar_and_object_properties() {
     let parser = liquid::ParserBuilder::with_stdlib().build().unwrap();
     let source = "{% assign size_index = sizes | find_index: size %}{{ size_index }}|{% assign block_index = blocks | find_index: 'id', block_id %}{{ block_index }}|{{ sizes | find_index: 'absent' | default: 'missing' }}";
     let globals = liquid::object!({"sizes":["12","16","20"],"size":"16","blocks":[{"id":"first"},{"id":"second"},{"id":"second"}],"block_id":"second"});
