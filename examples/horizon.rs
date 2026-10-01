@@ -26,6 +26,72 @@ use liquid_core::{
 use serde_json::{json, Value as Json};
 use sha2::{Digest, Sha256};
 
+#[cfg(feature = "profiling")]
+#[path = "horizon/profiling.rs"]
+mod profiling;
+
+// Fields and span hooks disappear entirely when profiling is not compiled.
+// Never pass runtime values, arbitrary identifiers or Error display text here.
+#[cfg(feature = "profiling")]
+macro_rules! host_profile_result {
+    ($level:ident, $name:literal, {$($field:ident = $value:expr),* $(,)?}, $body:block) => {{
+        let span = tracing::span!(target: "horizon::profile", tracing::Level::$level,
+            $name, outcome = "error", $($field = $value),*);
+        let _entered = span.enter();
+        // A closure keeps early returns inside the span so its outcome is recorded.
+        #[allow(clippy::redundant_closure_call)]
+        let result = (|| $body)();
+        if result.is_ok() {
+            span.record("outcome", "ok");
+        }
+        result
+    }};
+}
+#[cfg(not(feature = "profiling"))]
+macro_rules! host_profile_result {
+    ($level:ident, $name:literal, {$($field:ident = $value:expr),* $(,)?}, $body:block) => {
+        $body
+    };
+}
+
+#[cfg(feature = "profiling")]
+macro_rules! host_profile_plain {
+    ($level:ident, $name:literal, {$($field:ident = $value:expr),* $(,)?}, $body:block) => {{
+        let span = tracing::span!(target: "horizon::profile", tracing::Level::$level,
+            $name, $($field = $value),*);
+        let _entered = span.enter();
+        $body
+    }};
+}
+#[cfg(not(feature = "profiling"))]
+macro_rules! host_profile_plain {
+    ($level:ident, $name:literal, {$($field:ident = $value:expr),* $(,)?}, $body:block) => {
+        $body
+    };
+}
+
+#[cfg(feature = "profiling")]
+macro_rules! host_profile_request {
+    ($mode:expr, $body:block) => {{
+        let span = tracing::debug_span!(target: "horizon::profile", "horizon.request",
+            outcome = "error", mode = $mode);
+        let _entered = span.enter();
+        #[allow(clippy::redundant_closure_call)]
+        let result: Result<RenderOutput> = (|| $body)();
+        // Renderer catches a template error in RenderOutput, so Ok alone is not success.
+        if result.as_ref().is_ok_and(|output| output.error.is_none()) {
+            span.record("outcome", "ok");
+        }
+        result
+    }};
+}
+#[cfg(not(feature = "profiling"))]
+macro_rules! host_profile_request {
+    ($mode:expr, $body:block) => {
+        $body
+    };
+}
+
 fn failure(error: impl fmt::Display) -> Error {
     Error::with_msg(error.to_string())
 }
@@ -94,6 +160,39 @@ struct Sources(
 );
 
 impl Sources {
+    // Only names already present in the immutable source catalog are exported.
+    #[cfg(feature = "profiling")]
+    fn profile_name(&self, name: &str) -> &str {
+        self.0
+            .get_key_value(name.trim_end_matches(".liquid"))
+            .map(|(name, _)| name.as_str())
+            .unwrap_or("[redacted]")
+    }
+
+    #[cfg(feature = "profiling")]
+    fn profile_kind(&self, directory: &str, kind: &str) -> &str {
+        if kind.len() > 120
+            || !kind
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+        {
+            return "[redacted]";
+        }
+        self.profile_name(&format!("{directory}/{kind}"))
+    }
+
+    #[cfg(feature = "profiling")]
+    fn profile_block(&self, block: &Value) -> &str {
+        let Some(kind) = block
+            .as_object()
+            .and_then(|object| object.get("type"))
+            .and_then(ValueView::as_scalar)
+            .filter(|value| value.type_name() == "string")
+        else {
+            return "[redacted]";
+        };
+        self.profile_kind("blocks", &kind.to_kstr())
+    }
     fn new(files: BTreeMap<String, String>) -> Self {
         Self(Arc::new(files), Arc::new(Mutex::new(BTreeMap::new())))
     }
@@ -123,8 +222,11 @@ impl Sources {
 
     fn schema(&self, name: &str) -> Result<Json> {
         if let Some(schema) = self.1.lock().map_err(failure)?.get(name) {
-            return Ok(schema.clone());
+            return host_profile_result!(DEBUG, "horizon.source_cache", {kind = "schema", template = self.profile_name(name), mode = "hit"}, {
+                Ok(schema.clone())
+            });
         }
+        host_profile_result!(DEBUG, "horizon.source_cache", {kind = "schema", template = self.profile_name(name), mode = "miss"}, {
         let source = self
             .0
             .get(name)
@@ -145,6 +247,8 @@ impl Sources {
             .map_err(failure)?
             .insert(name.to_owned(), schema.clone());
         Ok(schema)
+
+        })
     }
 }
 
@@ -193,20 +297,28 @@ impl Context {
 
     fn json_source(&self, name: &str) -> Result<Json> {
         if let Some(value) = self.json_cache.lock().map_err(failure)?.get(name) {
-            return Ok(value.clone());
+            return host_profile_result!(DEBUG, "horizon.source_cache", {kind = "configuration_json",  mode = "hit"}, {
+                Ok(value.clone())
+            });
         }
+        host_profile_result!(DEBUG, "horizon.source_cache", {kind = "configuration_json",  mode = "miss"}, {
         let value = read_json(&self.theme.join(name))?;
         self.json_cache
             .lock()
             .map_err(failure)?
             .insert(name.to_owned(), value.clone());
         Ok(value)
+
+        })
     }
 
     fn asset_content(&self, name: &str) -> Result<String> {
         if let Some(body) = self.asset_cache.lock().map_err(failure)?.get(name) {
-            return Ok(body.clone());
+            return host_profile_result!(DEBUG, "horizon.source_cache", {kind = "asset",  mode = "hit"}, {
+                Ok(body.clone())
+            });
         }
+        host_profile_result!(DEBUG, "horizon.source_cache", {kind = "asset",  mode = "miss"}, {
         let root = self.theme.canonicalize().map_err(failure)?;
         let path = root
             .join("assets")
@@ -222,6 +334,8 @@ impl Context {
             .map_err(failure)?
             .insert(name.to_owned(), body.clone());
         Ok(body)
+
+        })
     }
 
     fn note(&self, name: &str) -> Result<()> {
@@ -253,54 +367,58 @@ impl Context {
         schema: &Json,
         globals: &dyn ObjectView,
     ) -> Result<()> {
-        bind_settings(values, globals)?;
-        if let Some(definitions) = schema["settings"].as_array() {
-            for definition in definitions {
-                let Some(id) = definition["id"].as_str() else {
-                    continue;
-                };
-                let Some(value) = values.get_mut(id) else {
-                    continue;
-                };
-                if value.is_nil() || value.to_kstr().is_empty() {
-                    continue;
-                }
-                let kind = definition["type"].as_str().unwrap_or("");
-                match kind {
-                    "collection" | "product" | "link_list" if value.is_scalar() => {
-                        let registry = match kind {
-                            "collection" => "collections",
-                            "product" => "all_products",
-                            _ => "linklists",
-                        };
-                        let handle = value.to_kstr();
-                        *value = globals
-                            .get(registry)
-                            .and_then(ValueView::as_object)
-                            .and_then(|items| items.get(&handle))
-                            .map(ValueView::to_value)
-                            .unwrap_or(Value::Nil);
+        host_profile_result!(DEBUG, "horizon.settings", { kind = "materialize" }, {
+            bind_settings(values, globals)?;
+            if let Some(definitions) = schema["settings"].as_array() {
+                for definition in definitions {
+                    let Some(id) = definition["id"].as_str() else {
+                        continue;
+                    };
+                    let Some(value) = values.get_mut(id) else {
+                        continue;
+                    };
+                    if value.is_nil() || value.to_kstr().is_empty() {
+                        continue;
                     }
-                    "url" => *value = Value::scalar(value.to_kstr().replacen("shopify://", "/", 1)),
-                    "color" => {
-                        Color::parse(value.to_kstr().as_str())?;
-                    }
-                    "font_picker" => {
-                        fixture_font(value)?;
-                    }
-                    "color_palette" => {
-                        let palette = value
-                            .as_object()
-                            .ok_or_else(|| failure("Palette requires named colors"))?;
-                        for (_, color) in palette.iter() {
-                            Color::parse(color.to_kstr().as_str())?;
+                    let kind = definition["type"].as_str().unwrap_or("");
+                    match kind {
+                        "collection" | "product" | "link_list" if value.is_scalar() => {
+                            let registry = match kind {
+                                "collection" => "collections",
+                                "product" => "all_products",
+                                _ => "linklists",
+                            };
+                            let handle = value.to_kstr();
+                            *value = globals
+                                .get(registry)
+                                .and_then(ValueView::as_object)
+                                .and_then(|items| items.get(&handle))
+                                .map(ValueView::to_value)
+                                .unwrap_or(Value::Nil);
                         }
+                        "url" => {
+                            *value = Value::scalar(value.to_kstr().replacen("shopify://", "/", 1));
+                        }
+                        "color" => {
+                            Color::parse(value.to_kstr().as_str())?;
+                        }
+                        "font_picker" => {
+                            fixture_font(value)?;
+                        }
+                        "color_palette" => {
+                            let palette = value
+                                .as_object()
+                                .ok_or_else(|| failure("Palette requires named colors"))?;
+                            for (_, color) in palette.iter() {
+                                Color::parse(color.to_kstr().as_str())?;
+                            }
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 
     fn render_section(
@@ -311,6 +429,7 @@ impl Context {
         raw: &Json,
         index: usize,
     ) -> Result<()> {
+        host_profile_result!(DEBUG, "horizon.section", {template = self.sources.profile_kind("sections", raw["type"].as_str().unwrap_or("")), index = index}, {
         let prepared = self.prepare(id, raw, "sections", index)?;
         let kind = prepared["type"]
             .as_str()
@@ -374,6 +493,8 @@ impl Context {
             write_wrapper(writer, tag, "", "", true)?;
         }
         Ok(())
+
+        })
     }
 
     fn render_group(
@@ -382,26 +503,33 @@ impl Context {
         partials: &dyn PartialStore,
         name: &str,
     ) -> Result<()> {
-        if name.is_empty()
-            || !name
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
-        {
-            return Err(failure("Invalid section group name"));
-        }
-        let group = self.json_source(&format!("sections/{name}.json"))?;
-        for (index, id) in group["order"]
-            .as_array()
-            .ok_or_else(|| failure("Group requires section order"))?
-            .iter()
-            .enumerate()
-        {
-            let id = id
-                .as_str()
-                .ok_or_else(|| failure("Invalid group section ID"))?;
-            self.render_section(writer, partials, id, &group["sections"][id], index + 1)?;
-        }
-        Ok(())
+        host_profile_result!(
+            DEBUG,
+            "horizon.section_group",
+            { kind = "section_group" },
+            {
+                if name.is_empty()
+                    || !name
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+                {
+                    return Err(failure("Invalid section group name"));
+                }
+                let group = self.json_source(&format!("sections/{name}.json"))?;
+                for (index, id) in group["order"]
+                    .as_array()
+                    .ok_or_else(|| failure("Group requires section order"))?
+                    .iter()
+                    .enumerate()
+                {
+                    let id = id
+                        .as_str()
+                        .ok_or_else(|| failure("Invalid group section ID"))?;
+                    self.render_section(writer, partials, id, &group["sections"][id], index + 1)?;
+                }
+                Ok(())
+            }
+        )
     }
 
     fn setting_defaults(&self, schema: &Json) -> Json {
@@ -426,6 +554,7 @@ impl Context {
     }
 
     fn prepare(&self, id: &str, input: &Json, directory: &str, index: usize) -> Result<Json> {
+        host_profile_result!(DEBUG, "horizon.prepare", {template = self.sources.profile_kind(directory, input["type"].as_str().unwrap_or("")), index = index}, {
         let kind = input["type"]
             .as_str()
             .ok_or_else(|| failure("Block/section requires type"))?;
@@ -469,6 +598,8 @@ impl Context {
         Ok(
             json!({"id":id,"type":kind,"settings":settings,"blocks":blocks,"index":index,"static":input["static"].as_bool().unwrap_or(false),"shopify_attributes":""}),
         )
+
+        })
     }
 
     fn scope(&self, runtime: &dyn Runtime) -> Arc<ScopeOverlay> {
@@ -483,69 +614,76 @@ impl Context {
         closest: Option<Arc<ClosestView>>,
         locals: &Object,
     ) -> Result<()> {
-        let object = block
-            .as_object()
-            .ok_or_else(|| failure("Expected block object"))?;
-        let kind = object
-            .get("type")
-            .ok_or_else(|| failure("Missing block type"))?
-            .to_kstr()
-            .into_owned();
-        let id = object
-            .get("id")
-            .ok_or_else(|| failure("Missing block ID"))?
-            .to_kstr()
-            .into_owned();
-        let name = format!("blocks/{kind}");
-        let schema = self.sources.schema(&name)?;
-        let mut globals = ScopeOverlay::child(self.scope(runtime), Object::new());
-        if let Some(closest) = closest {
-            globals.closest = Some(closest);
-        }
-        if let Value::Object(object) = &mut block {
-            if let Some(Value::Object(settings)) = object.get_mut("settings") {
-                self.materialize_settings(
-                    settings,
-                    &schema,
-                    &globals_view(&self.globals, &globals),
-                )?;
+        host_profile_result!(
+            DEBUG,
+            "horizon.block",
+            { template = self.sources.profile_block(&block) },
+            {
+                let object = block
+                    .as_object()
+                    .ok_or_else(|| failure("Expected block object"))?;
+                let kind = object
+                    .get("type")
+                    .ok_or_else(|| failure("Missing block type"))?
+                    .to_kstr()
+                    .into_owned();
+                let id = object
+                    .get("id")
+                    .ok_or_else(|| failure("Missing block ID"))?
+                    .to_kstr()
+                    .into_owned();
+                let name = format!("blocks/{kind}");
+                let schema = self.sources.schema(&name)?;
+                let mut globals = ScopeOverlay::child(self.scope(runtime), Object::new());
+                if let Some(closest) = closest {
+                    globals.closest = Some(closest);
+                }
+                if let Value::Object(object) = &mut block {
+                    if let Some(Value::Object(settings)) = object.get_mut("settings") {
+                        self.materialize_settings(
+                            settings,
+                            &schema,
+                            &globals_view(&self.globals, &globals),
+                        )?;
+                    }
+                }
+                globals.local.insert("block".into(), block);
+                // Borrow immutable fixture values; runtime assignments stay in the request GlobalFrame.
+                let globals = Arc::new(globals);
+                let platform_values = globals_view(&self.globals, globals.as_ref());
+                let values = globals_view(&platform_values, locals);
+                let inner = RuntimeBuilder::new()
+                    .set_globals(&values)
+                    .set_partials(runtime.partials())
+                    .build();
+                set_platform_bindings(&inner, &globals);
+                let frame = FixtureRuntime {
+                    inner: &inner,
+                    name: &name,
+                    palette: &self.palette,
+                    focal_points: &self.focal_points,
+                };
+                let tag = schema
+                    .get("tag")
+                    .map(|tag| tag.as_str())
+                    .unwrap_or(Some("div"));
+                if let Some(tag) = tag {
+                    write_wrapper(
+                        writer,
+                        tag,
+                        &format!("shopify-block-{id}"),
+                        &wrapper_class("shopify-block", &schema),
+                        false,
+                    )?;
+                }
+                self.record_source(&name)?;
+                runtime.partials().get(&name)?.render_to(writer, &frame)?;
+                if let Some(tag) = tag {
+                    write_wrapper(writer, tag, "", "", true)?;
+                }
+                Ok(())
             }
-        }
-        globals.local.insert("block".into(), block);
-        // Borrow immutable fixture values; runtime assignments stay in the request GlobalFrame.
-        let globals = Arc::new(globals);
-        let platform_values = globals_view(&self.globals, globals.as_ref());
-        let values = globals_view(&platform_values, locals);
-        let inner = RuntimeBuilder::new()
-            .set_globals(&values)
-            .set_partials(runtime.partials())
-            .build();
-        set_platform_bindings(&inner, &globals);
-        let frame = FixtureRuntime {
-            inner: &inner,
-            name: &name,
-            palette: &self.palette,
-            focal_points: &self.focal_points,
-        };
-        let tag = schema
-            .get("tag")
-            .map(|tag| tag.as_str())
-            .unwrap_or(Some("div"));
-        if let Some(tag) = tag {
-            write_wrapper(
-                writer,
-                tag,
-                &format!("shopify-block-{id}"),
-                &wrapper_class("shopify-block", &schema),
-                false,
-            )?;
-        }
-        self.record_source(&name)?;
-        runtime.partials().get(&name)?.render_to(writer, &frame)?;
-        if let Some(tag) = tag {
-            write_wrapper(writer, tag, "", "", true)?;
-        }
-        Ok(())
+        )
     }
 }
 
@@ -586,23 +724,25 @@ impl ScopeOverlay {
             .and_then(|parent| parent.shared_closest())
     }
     fn view(&self) -> BTreeMap<KStringCow<'_>, &dyn ValueView> {
-        let mut values = BTreeMap::new();
-        let mut current = Some(self);
-        // Enumerate the chain once. Local keys, including nil, win by presence.
-        while let Some(scope) = current {
-            if let Some(closest) = &scope.closest {
-                values
-                    .entry(KStringCow::from_ref("closest"))
-                    .or_insert_with(|| closest.as_value());
+        host_profile_plain!(TRACE, "horizon.scope_view", { kind = "platform" }, {
+            let mut values = BTreeMap::new();
+            let mut current = Some(self);
+            // Enumerate the chain once. Local keys, including nil, win by presence.
+            while let Some(scope) = current {
+                if let Some(closest) = &scope.closest {
+                    values
+                        .entry(KStringCow::from_ref("closest"))
+                        .or_insert_with(|| closest.as_value());
+                }
+                for (key, value) in scope.local.iter() {
+                    values
+                        .entry(KStringCow::from_ref(key.as_str()))
+                        .or_insert_with(|| value.as_view());
+                }
+                current = scope.parent.as_deref();
             }
-            for (key, value) in scope.local.iter() {
-                values
-                    .entry(KStringCow::from_ref(key.as_str()))
-                    .or_insert_with(|| value.as_view());
-            }
-            current = scope.parent.as_deref();
-        }
-        values
+            values
+        })
     }
 }
 
@@ -713,11 +853,13 @@ impl ClosestView {
         .and_then(ValueView::as_object)
     }
     fn view(&self) -> BTreeMap<KStringCow<'_>, &dyn ValueView> {
-        self.base()
-            .into_iter()
-            .flat_map(|base| base.iter())
-            .chain(ObjectView::iter(&self.local))
-            .collect()
+        host_profile_plain!(TRACE, "horizon.scope_view", { kind = "closest" }, {
+            self.base()
+                .into_iter()
+                .flat_map(|base| base.iter())
+                .chain(ObjectView::iter(&self.local))
+                .collect()
+        })
     }
 }
 
@@ -791,7 +933,9 @@ fn globals_view<'a>(
     base: &'a dyn ObjectView,
     overrides: &'a dyn ObjectView,
 ) -> BTreeMap<KStringCow<'a>, &'a dyn ValueView> {
-    base.iter().chain(overrides.iter()).collect()
+    host_profile_plain!(TRACE, "horizon.scope_view", { kind = "globals" }, {
+        base.iter().chain(overrides.iter()).collect()
+    })
 }
 
 fn merge(target: &mut Json, overrides: &Json) {
@@ -840,60 +984,62 @@ fn wrapper_class(prefix: &str, schema: &Json) -> String {
 }
 
 fn bind_settings(settings: &mut Object, globals: &dyn ObjectView) -> Result<()> {
-    static PATTERN: LazyLock<std::result::Result<regex::Regex, regex::Error>> =
-        LazyLock::new(|| regex::Regex::new(r"\{\{\s*([\w.]+)\s*\}\}"));
-    let pattern = PATTERN.as_ref().map_err(failure)?;
-    let fallback = Value::Object(settings.clone());
-    let mut root = globals.iter().collect::<BTreeMap<_, _>>();
-    root.entry("settings".into()).or_insert(&fallback);
-    for (_, value) in settings.iter_mut() {
-        let Some(text) = value.as_scalar().and_then(|value| {
-            value
-                .to_kstr()
-                .as_str()
-                .contains("{{")
-                .then(|| value.to_kstr().into_owned())
-        }) else {
-            continue;
-        };
-        let lookup = |path: &str| {
-            let path = path
-                .split('.')
-                .map(|part| ScalarCow::from(part.to_owned()))
-                .collect::<Vec<_>>();
-            liquid_core::model::try_find(&root, &path)
-                .map(ValueCow::into_owned)
-                .unwrap_or(Value::Nil)
-        };
-        if let Some(captures) = pattern.captures(&text) {
-            if captures
-                .get(0)
-                .is_some_and(|matched| matched.as_str() == text.as_str())
-            {
-                *value = lookup(
-                    captures
-                        .get(1)
-                        .ok_or_else(|| failure("Missing binding path"))?
-                        .as_str(),
-                );
-                continue;
-            }
-        }
-        let rendered = pattern
-            .replace_all(&text, |captures: &regex::Captures<'_>| {
-                lookup(captures.get(1).map(|path| path.as_str()).unwrap_or(""))
+    host_profile_result!(DEBUG, "horizon.settings", { kind = "bindings" }, {
+        static PATTERN: LazyLock<std::result::Result<regex::Regex, regex::Error>> =
+            LazyLock::new(|| regex::Regex::new(r"\{\{\s*([\w.]+)\s*\}\}"));
+        let pattern = PATTERN.as_ref().map_err(failure)?;
+        let fallback = Value::Object(settings.clone());
+        let mut root = globals.iter().collect::<BTreeMap<_, _>>();
+        root.entry("settings".into()).or_insert(&fallback);
+        for (_, value) in settings.iter_mut() {
+            let Some(text) = value.as_scalar().and_then(|value| {
+                value
                     .to_kstr()
-                    .into_owned()
-            })
-            .into_owned();
-        if rendered.contains("{{") {
-            return Err(failure(format!(
-                "Unsupported fixture setting binding: {text}"
-            )));
+                    .as_str()
+                    .contains("{{")
+                    .then(|| value.to_kstr().into_owned())
+            }) else {
+                continue;
+            };
+            let lookup = |path: &str| {
+                let path = path
+                    .split('.')
+                    .map(|part| ScalarCow::from(part.to_owned()))
+                    .collect::<Vec<_>>();
+                liquid_core::model::try_find(&root, &path)
+                    .map(ValueCow::into_owned)
+                    .unwrap_or(Value::Nil)
+            };
+            if let Some(captures) = pattern.captures(&text) {
+                if captures
+                    .get(0)
+                    .is_some_and(|matched| matched.as_str() == text.as_str())
+                {
+                    *value = lookup(
+                        captures
+                            .get(1)
+                            .ok_or_else(|| failure("Missing binding path"))?
+                            .as_str(),
+                    );
+                    continue;
+                }
+            }
+            let rendered = pattern
+                .replace_all(&text, |captures: &regex::Captures<'_>| {
+                    lookup(captures.get(1).map(|path| path.as_str()).unwrap_or(""))
+                        .to_kstr()
+                        .into_owned()
+                })
+                .into_owned();
+            if rendered.contains("{{") {
+                return Err(failure(format!(
+                    "Unsupported fixture setting binding: {text}"
+                )));
+            }
+            *value = Value::scalar(rendered);
         }
-        *value = Value::scalar(rendered);
-    }
-    Ok(())
+        Ok(())
+    })
 }
 
 // Ruby oracle configuration is strict parsing with strict_variables=false.
@@ -915,22 +1061,29 @@ impl Runtime for FixtureRuntime<'_> {
         scope: &'a dyn Runtime,
         path: Option<&[ScalarCow<'_>]>,
     ) -> ValueCow<'a> {
-        if let Some((property, prefix)) = path.and_then(|path| path.split_last()) {
-            if property.to_kstr() == "size" {
-                if let Some(name) = scope.try_get(prefix).and_then(|value| {
-                    if value.as_object()?.contains_key("size") {
-                        return None;
+        host_profile_plain!(
+            TRACE,
+            "horizon.projection",
+            { selectors = path.map(<[_]>::len).unwrap_or(0) },
+            {
+                if let Some((property, prefix)) = path.and_then(|path| path.split_last()) {
+                    if property.to_kstr() == "size" {
+                        if let Some(name) = scope.try_get(prefix).and_then(|value| {
+                            if value.as_object()?.contains_key("size") {
+                                return None;
+                            }
+                            option_value_name(value.as_view()).map(|name| name.into_owned())
+                        }) {
+                            return ValueCow::Owned(Value::scalar(name.chars().count() as i64));
+                        }
                     }
-                    option_value_name(value.as_view()).map(|name| name.into_owned())
-                }) {
-                    return ValueCow::Owned(Value::scalar(name.chars().count() as i64));
                 }
+                focal_point_key(value.as_view())
+                    .and_then(|key| self.focal_points.get(&key))
+                    .map(|point| ValueCow::Borrowed(point as &dyn ValueView))
+                    .unwrap_or(value)
             }
-        }
-        focal_point_key(value.as_view())
-            .and_then(|key| self.focal_points.get(&key))
-            .map(|point| ValueCow::Borrowed(point as &dyn ValueView))
-            .unwrap_or(value)
+        )
     }
     fn partials(&self) -> &dyn PartialStore {
         self.inner.partials()
@@ -1080,13 +1233,15 @@ impl Renderable for TagNode {
         let primary = self.primary.evaluate(runtime)?.to_kstr().into_owned();
         let mut arguments = Object::new();
         for (key, expression) in &self.keywords {
-            arguments.insert(
-                key.clone().into(),
-                expression
-                    .try_evaluate(runtime)
-                    .map(ValueCow::into_owned)
-                    .unwrap_or(Value::Nil),
-            );
+            arguments.insert(key.clone().into(), {
+                let value =
+                    host_profile_plain!(TRACE, "horizon.keyword_evaluate", { kind = self.name }, {
+                        expression.try_evaluate(runtime)
+                    });
+                host_profile_plain!(TRACE, "horizon.keyword_own", { kind = self.name }, {
+                    value.map(ValueCow::into_owned).unwrap_or(Value::Nil)
+                })
+            });
         }
         if self.name == "render" {
             let globals = self.context.scope(runtime);
@@ -1104,7 +1259,12 @@ impl Renderable for TagNode {
                 focal_points: &self.context.focal_points,
             };
             self.context.record_source(&primary)?;
-            return runtime.partials().get(&primary)?.render_to(writer, &frame);
+            return host_profile_result!(
+                DEBUG,
+                "horizon.snippet",
+                { template = self.context.sources.profile_name(&primary) },
+                { runtime.partials().get(&primary)?.render_to(writer, &frame) }
+            );
         }
         if self.name == "sections" {
             return self
@@ -1114,106 +1274,127 @@ impl Renderable for TagNode {
         if self.name != "content_for" {
             return Err(failure(format!("Unsupported platform tag: {}", self.name)));
         }
-        let parent = runtime
-            .try_get(&["block".into()])
-            .filter(|value| !value.is_nil())
-            .or_else(|| runtime.try_get(&["section".into()]))
-            .ok_or_else(|| failure("content_for requires a section or block"))?;
-        let children = parent
-            .as_object()
-            .and_then(|parent| parent.get("blocks"))
-            .and_then(ValueView::as_array);
-        let platform_globals = self.context.scope(runtime);
-        let keys = arguments
-            .keys()
-            .filter(|key| key.starts_with("closest."))
-            .cloned()
-            .collect::<Vec<_>>();
-        let mut closest_overrides = Object::new();
-        for key in keys {
-            if let Some(value) = arguments.remove(key.as_str()) {
-                closest_overrides
-                    .insert(key.trim_start_matches("closest.").to_owned().into(), value);
-            }
-        }
-        let closest = ClosestView::sharing(&self.context, &platform_globals, closest_overrides);
-        let locals = arguments
-            .iter()
-            .filter(|(key, _)| {
-                !matches!(key.as_str(), "id" | "type") && !key.starts_with("closest.")
-            })
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect::<Object>();
-        if primary == "blocks" {
-            if let Some(children) = children {
-                for block in children.values().filter(|block| {
-                    !block
-                        .as_object()
-                        .and_then(|object| object.get("static"))
-                        .is_some_and(|value| {
-                            value.as_scalar().and_then(|value| value.to_bool()) == Some(true)
+        host_profile_result!(
+            DEBUG,
+            "horizon.content_for",
+            {
+                kind = if primary == "blocks" {
+                    "blocks"
+                } else if primary == "block" {
+                    "block"
+                } else {
+                    "unknown"
+                }
+            },
+            {
+                let parent = runtime
+                    .try_get(&["block".into()])
+                    .filter(|value| !value.is_nil())
+                    .or_else(|| runtime.try_get(&["section".into()]))
+                    .ok_or_else(|| failure("content_for requires a section or block"))?;
+                let children = parent
+                    .as_object()
+                    .and_then(|parent| parent.get("blocks"))
+                    .and_then(ValueView::as_array);
+                let platform_globals = self.context.scope(runtime);
+                let keys = arguments
+                    .keys()
+                    .filter(|key| key.starts_with("closest."))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let mut closest_overrides = Object::new();
+                for key in keys {
+                    if let Some(value) = arguments.remove(key.as_str()) {
+                        closest_overrides
+                            .insert(key.trim_start_matches("closest.").to_owned().into(), value);
+                    }
+                }
+                let closest =
+                    ClosestView::sharing(&self.context, &platform_globals, closest_overrides);
+                let locals = arguments
+                    .iter()
+                    .filter(|(key, _)| {
+                        !matches!(key.as_str(), "id" | "type") && !key.starts_with("closest.")
+                    })
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect::<Object>();
+                if primary == "blocks" {
+                    if let Some(children) = children {
+                        for block in children.values().filter(|block| {
+                            !block
+                                .as_object()
+                                .and_then(|object| object.get("static"))
+                                .is_some_and(|value| {
+                                    value.as_scalar().and_then(|value| value.to_bool())
+                                        == Some(true)
+                                })
+                        }) {
+                            self.context.render_block(
+                                writer,
+                                runtime,
+                                block.to_value(),
+                                Some(closest.clone()),
+                                &locals,
+                            )?;
+                        }
+                    }
+                    return Ok(());
+                }
+                if primary == "block" {
+                    let id = arguments
+                        .get("id")
+                        .ok_or_else(|| failure("content_for block requires id"))?
+                        .to_kstr();
+                    let existing = children
+                        .and_then(|children| {
+                            children.values().find(|block| {
+                                block
+                                    .as_object()
+                                    .and_then(|object| object.get("id"))
+                                    .is_some_and(|value| value.to_kstr() == id)
+                            })
                         })
-                }) {
-                    self.context.render_block(
+                        .map(ValueView::to_value);
+                    let block = match existing {
+                        Some(block) => {
+                            let expected = arguments
+                                .get("type")
+                                .ok_or_else(|| failure("content_for block requires type"))?
+                                .to_kstr();
+                            let actual = block
+                                .as_object()
+                                .and_then(|object| object.get("type"))
+                                .ok_or_else(|| failure("Block requires type"))?
+                                .to_kstr();
+                            if actual != expected {
+                                return Err(failure(format!("Block {id} type mismatch")));
+                            }
+                            block
+                        }
+                        None => {
+                            let kind = arguments
+                                .get("type")
+                                .ok_or_else(|| failure("content_for block requires type"))?
+                                .to_kstr();
+                            liquid_core::model::to_value(&self.context.prepare(
+                                &id,
+                                &json!({"type":kind.as_str()}),
+                                "blocks",
+                                0,
+                            )?)?
+                        }
+                    };
+                    return self.context.render_block(
                         writer,
                         runtime,
-                        block.to_value(),
-                        Some(closest.clone()),
+                        block,
+                        Some(closest),
                         &locals,
-                    )?;
+                    );
                 }
+                Err(failure(format!("Unsupported content_for kind: {primary}")))
             }
-            return Ok(());
-        }
-        if primary == "block" {
-            let id = arguments
-                .get("id")
-                .ok_or_else(|| failure("content_for block requires id"))?
-                .to_kstr();
-            let existing = children
-                .and_then(|children| {
-                    children.values().find(|block| {
-                        block
-                            .as_object()
-                            .and_then(|object| object.get("id"))
-                            .is_some_and(|value| value.to_kstr() == id)
-                    })
-                })
-                .map(ValueView::to_value);
-            let block = match existing {
-                Some(block) => {
-                    let expected = arguments
-                        .get("type")
-                        .ok_or_else(|| failure("content_for block requires type"))?
-                        .to_kstr();
-                    let actual = block
-                        .as_object()
-                        .and_then(|object| object.get("type"))
-                        .ok_or_else(|| failure("Block requires type"))?
-                        .to_kstr();
-                    if actual != expected {
-                        return Err(failure(format!("Block {id} type mismatch")));
-                    }
-                    block
-                }
-                None => {
-                    let kind = arguments
-                        .get("type")
-                        .ok_or_else(|| failure("content_for block requires type"))?
-                        .to_kstr();
-                    liquid_core::model::to_value(&self.context.prepare(
-                        &id,
-                        &json!({"type":kind.as_str()}),
-                        "blocks",
-                        0,
-                    )?)?
-                }
-            };
-            return self
-                .context
-                .render_block(writer, runtime, block, Some(closest), &locals);
-        }
-        Err(failure(format!("Unsupported content_for kind: {primary}")))
+        )
     }
 }
 
@@ -2020,553 +2201,607 @@ impl fmt::Display for FilterNode {
 
 impl Filter for FilterNode {
     fn evaluate(&self, input: &dyn ValueView, runtime: &dyn Runtime) -> Result<Value> {
-        self.context.note(&self.name)?;
-        let positional = self
-            .positional
-            .iter()
-            .map(|value| value.evaluate(runtime).map(ValueCow::into_owned))
-            .collect::<Result<Vec<_>>>()?;
-        let keyword = self
-            .keyword
-            .iter()
-            .map(|(name, value)| {
-                value
-                    .evaluate(runtime)
-                    .map(|value| (name.as_str(), value.into_owned()))
-            })
-            .collect::<Result<BTreeMap<_, _>>>()?;
-        let positional_bounds = match self.name.as_str() {
-            "placeholder_svg_tag" => (0, 1),
-            "standard_event_data"
-            | "link_to"
-            | "date"
-            | "item_count_for_variant"
-            | "color_contrast"
-            | "color_lighten"
-            | "color_darken" => (1, 1),
-            "font_modify" | "color_modify" => (2, 2),
-            _ => (0, 0),
-        };
-        if positional.len() < positional_bounds.0 || positional.len() > positional_bounds.1 {
-            return Err(failure(format!(
-                "Unsupported positional arguments for {}",
-                self.name
-            )));
-        }
-        let accepts_keywords = matches!(
-            self.name.as_str(),
-            "t" | "image_url"
-                | "image_tag"
-                | "preload_tag"
-                | "stylesheet_tag"
-                | "font_face"
-                | "standard_event_data"
-        );
-        if !accepts_keywords && !keyword.is_empty() {
-            return Err(failure(format!(
-                "Unsupported keyword arguments for {}",
-                self.name
-            )));
-        }
-        match self.name.as_str() {
-            "escape" => {
-                // Shopify option values are Drops with a name string projection.
-                // Preserve ordinary stdlib escaping for all other values.
-                let text = option_value_name(input).unwrap_or_else(|| input.to_kstr());
-                Ok(Value::scalar(html_escape(&text)))
+        host_profile_result!(DEBUG, "horizon.filter", { name = self.name.as_str() }, {
+            self.context.note(&self.name)?;
+            let positional = self
+                .positional
+                .iter()
+                .map(|value| {
+                    let value = host_profile_result!(
+                        TRACE,
+                        "horizon.keyword_evaluate",
+                        { kind = "filter_positional" },
+                        { value.evaluate(runtime) }
+                    )?;
+                    Ok(host_profile_plain!(
+                        TRACE,
+                        "horizon.keyword_own",
+                        { kind = "filter_positional" },
+                        { value.into_owned() }
+                    ))
+                })
+                .collect::<Result<Vec<_>>>()?;
+            let keyword = self
+                .keyword
+                .iter()
+                .map(|(name, value)| {
+                    let value = host_profile_result!(
+                        TRACE,
+                        "horizon.keyword_evaluate",
+                        { kind = "filter_keyword" },
+                        { value.evaluate(runtime) }
+                    )?;
+                    Ok((
+                        name.as_str(),
+                        host_profile_plain!(
+                            TRACE,
+                            "horizon.keyword_own",
+                            { kind = "filter_keyword" },
+                            { value.into_owned() }
+                        ),
+                    ))
+                })
+                .collect::<Result<BTreeMap<_, _>>>()?;
+            let positional_bounds = match self.name.as_str() {
+                "placeholder_svg_tag" => (0, 1),
+                "standard_event_data"
+                | "link_to"
+                | "date"
+                | "item_count_for_variant"
+                | "color_contrast"
+                | "color_lighten"
+                | "color_darken" => (1, 1),
+                "font_modify" | "color_modify" => (2, 2),
+                _ => (0, 0),
+            };
+            if positional.len() < positional_bounds.0 || positional.len() > positional_bounds.1 {
+                return Err(failure(format!(
+                    "Unsupported positional arguments for {}",
+                    self.name
+                )));
             }
-            "structured_data" => {
-                if self.context.fixture["manifest"]["mock_contract"]["structured_data"]
-                    != "synthetic Schema.org ProductGroup"
-                {
-                    return Err(failure(
-                        "structured_data requires the declared synthetic product contract",
-                    ));
-                }
-                if self.context.fixture["globals"]["shop"]["currency"] != "USD" {
-                    return Err(failure("Fixture structured_data supports USD only"));
-                }
-                product_structured_data(input, runtime)
+            let accepts_keywords = matches!(
+                self.name.as_str(),
+                "t" | "image_url"
+                    | "image_tag"
+                    | "preload_tag"
+                    | "stylesheet_tag"
+                    | "font_face"
+                    | "standard_event_data"
+            );
+            if !accepts_keywords && !keyword.is_empty() {
+                return Err(failure(format!(
+                    "Unsupported keyword arguments for {}",
+                    self.name
+                )));
             }
-            "placeholder_svg_tag" => {
-                if input.to_kstr() != "hero-apparel-1" {
-                    return Err(failure("Unsupported fixture placeholder"));
+            match self.name.as_str() {
+                "escape" => {
+                    // Shopify option values are Drops with a name string projection.
+                    // Preserve ordinary stdlib escaping for all other values.
+                    let text = option_value_name(input).unwrap_or_else(|| input.to_kstr());
+                    Ok(Value::scalar(html_escape(&text)))
                 }
-                let class = positional
-                    .first()
-                    .map(|value| value.to_kstr().into_owned())
-                    .unwrap_or_default();
-                let class = class
-                    .replace('&', "&amp;")
-                    .replace('"', "&quot;")
-                    .replace('<', "&lt;")
-                    .replace('>', "&gt;");
-                Ok(Value::scalar(format!("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1200 800\" class=\"{class}\" role=\"img\" aria-label=\"Fixture placeholder\"><rect width=\"1200\" height=\"800\" fill=\"#e8e8e8\"/></svg>")))
-            }
-            "color_brightness" => {
-                if !positional.is_empty() || !keyword.is_empty() {
-                    return Err(failure("color_brightness accepts no arguments"));
-                }
-                let color = Color::parse(input.to_kstr().as_str())?;
-                Ok(Value::scalar(
-                    (f64::from(color.red) * 299.0
-                        + f64::from(color.green) * 587.0
-                        + f64::from(color.blue) * 114.0)
-                        / 1000.0,
-                ))
-            }
-            "t" => {
-                let key = input.to_kstr();
-                let mut text = &self.context.locales;
-                for part in key.split('.') {
-                    text = text
-                        .get(part)
-                        .ok_or_else(|| failure(format!("Missing fixture translation: {key}")))?;
-                }
-                if let Some(count) = keyword.get("count").filter(|_| text.is_object()) {
-                    let count = count.as_scalar().and_then(|value| value.to_integer());
-                    let category = match count {
-                        Some(1) => "one",
-                        Some(count) if self.context.locale == "pl" => {
-                            let count = count.unsigned_abs();
-                            if (2..=4).contains(&(count % 10))
-                                && !(12..=14).contains(&(count % 100))
-                            {
-                                "few"
-                            } else {
-                                "many"
-                            }
-                        }
-                        _ => "other",
-                    };
-                    text = text.get(category).ok_or_else(|| {
-                        failure(format!(
-                            "Missing fixture plural translation: {key}.{category}"
-                        ))
-                    })?;
-                }
-                let text = text
-                    .as_str()
-                    .ok_or_else(|| failure("Fixture translation must be scalar"))?;
-                static MATCHER: LazyLock<std::result::Result<regex::Regex, regex::Error>> =
-                    LazyLock::new(|| regex::Regex::new(r"\{\{\s*(\w+)\s*\}\}"));
-                let matcher = MATCHER.as_ref().map_err(failure)?;
-                Ok(Value::scalar(
-                    matcher
-                        .replace_all(text, |captures: &regex::Captures<'_>| {
-                            captures
-                                .get(1)
-                                .and_then(|name| keyword.get(name.as_str()))
-                                .map(|value| value.to_kstr().into_string())
-                                .unwrap_or_else(|| {
-                                    captures
-                                        .get(0)
-                                        .map(|matched| matched.as_str())
-                                        .unwrap_or("")
-                                        .to_owned()
-                                })
-                        })
-                        .into_owned(),
-                ))
-            }
-            "image_url" => {
-                let image = input
-                    .as_object()
-                    .ok_or_else(|| failure("Fixture image_url requires image object"))?;
-                let source = image
-                    .get("src")
-                    .ok_or_else(|| failure("Image requires src"))?
-                    .to_kstr();
-                let width = keyword
-                    .get("width")
-                    .and_then(|value| value.as_scalar())
-                    .and_then(|value| value.to_integer())
-                    .ok_or_else(|| failure("image_url requires width"))?;
-                if keyword.len() != 1 || width <= 0 {
-                    return Err(failure("Unsupported image_url options"));
-                }
-                Ok(Value::scalar(format!("{source}?width={width}")))
-            }
-            "image_tag" => {
-                let url = input.to_kstr();
-                if !url.starts_with("/cdn/shop/") {
-                    return Err(failure("image_tag requires fixture URL"));
-                }
-                let mut attributes = format!("src=\"{}\"", html_escape(&url));
-                if let Some(widths) = keyword.get("widths") {
-                    let base = url
-                        .rsplit_once("?width=")
-                        .map(|(base, _)| base)
-                        .unwrap_or(&url);
-                    let widths = widths
-                        .to_kstr()
-                        .split(',')
-                        .map(|width| width.trim().parse::<i64>().map_err(failure))
-                        .collect::<Result<Vec<_>>>()?;
-                    let srcset = widths
-                        .iter()
-                        .map(|width| format!("{base}?width={width} {width}w"))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    attributes.push_str(&format!(" srcset=\"{}\"", html_escape(&srcset)));
-                }
-                for (name, value) in keyword {
-                    if name == "widths" || value.is_nil() {
-                        continue;
-                    }
-                    if !name
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+                "structured_data" => {
+                    if self.context.fixture["manifest"]["mock_contract"]["structured_data"]
+                        != "synthetic Schema.org ProductGroup"
                     {
-                        return Err(failure("Invalid image attribute"));
+                        return Err(failure(
+                            "structured_data requires the declared synthetic product contract",
+                        ));
                     }
-                    attributes.push_str(&format!(" {name}=\"{}\"", html_escape(&value.to_kstr())));
-                }
-                Ok(Value::scalar(format!("<img {attributes}>")))
-            }
-            "handleize" => {
-                let text = input.to_kstr();
-                if !text
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b" _-".contains(&byte))
-                {
-                    return Err(failure("Fixture handleize supports ASCII identifiers only"));
-                }
-                let text = text.to_ascii_lowercase().replace('_', "-");
-                let text = regex::Regex::new(r"[ -]+")
-                    .map_err(failure)?
-                    .replace_all(&text, "-");
-                Ok(Value::scalar(text.trim_matches('-').to_owned()))
-            }
-            "money" | "money_with_currency" | "money_without_currency" => {
-                if self.context.fixture["globals"]["shop"]["currency"] != "USD" {
-                    return Err(failure("Fixture money supports USD only"));
-                }
-                let cents = if input.is_nil() {
-                    0
-                } else {
-                    input
-                        .as_scalar()
-                        .and_then(|value| value.to_integer())
-                        .ok_or_else(|| failure("Money requires integer cents"))?
-                };
-                let absolute = cents.unsigned_abs();
-                let digits = (absolute / 100).to_string();
-                let mut grouped = String::new();
-                for (index, digit) in digits.chars().enumerate() {
-                    if index != 0 && (digits.len() - index) % 3 == 0 {
-                        grouped.push(',');
+                    if self.context.fixture["globals"]["shop"]["currency"] != "USD" {
+                        return Err(failure("Fixture structured_data supports USD only"));
                     }
-                    grouped.push(digit);
+                    product_structured_data(input, runtime)
                 }
-                let sign = if cents < 0 { "-" } else { "" };
-                let currency = if self.name == "money_with_currency" {
-                    " USD"
-                } else {
-                    ""
-                };
-                let symbol = if self.name == "money_without_currency" {
-                    ""
-                } else {
-                    "$"
-                };
-                Ok(Value::scalar(format!(
-                    "{sign}{symbol}{grouped}.{:02}{currency}",
-                    absolute % 100
-                )))
-            }
-            "inline_asset_content" | "asset_url" => {
-                let name = input.to_kstr();
-                if name.is_empty()
-                    || !name
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
-                {
-                    return Err(failure("Invalid fixture asset name"));
-                }
-                let body = self.context.asset_content(name.as_str())?;
-                Ok(Value::scalar(if self.name == "asset_url" {
-                    format!("/assets/{name}")
-                } else {
-                    body
-                }))
-            }
-            "standard_event_data" => {
-                let resource = input
-                    .as_object()
-                    .ok_or_else(|| failure("Event requires product/cart object"))?;
-                if positional.first().map(|value| value.to_kstr()) != Some("view".into()) {
-                    return Err(failure("Fixture supports product/cart view events only"));
-                }
-                let context = keyword.get("context").cloned().unwrap_or(Value::Nil);
-                let serialize = |value: &dyn ValueView| {
-                    serde_json::to_string(&value.to_value()).map_err(failure)
-                };
-                let payload = if resource.contains_key("products") && resource.contains_key("id") {
-                    let id = resource
-                        .get("id")
-                        .ok_or_else(|| failure("Collection requires id"))?;
-                    format!(
-                        "{{\"event\":\"view\",\"collection_id\":{},\"context\":{}}}",
-                        serialize(id)?,
-                        serialize(&context)?
-                    )
-                } else if let Some(id) = resource.get("id") {
-                    format!(
-                        "{{\"event\":\"view\",\"product_id\":{},\"context\":{}}}",
-                        serialize(id)?,
-                        serialize(&context)?
-                    )
-                } else if resource.contains_key("items") && resource.contains_key("total_price") {
-                    let count = resource
-                        .get("item_count")
-                        .ok_or_else(|| failure("Cart event requires item_count"))?;
-                    let price = resource
-                        .get("total_price")
-                        .ok_or_else(|| failure("Cart event requires total_price"))?;
-                    format!("{{\"event\":\"view\",\"cart_item_count\":{},\"cart_total_price\":{},\"context\":{}}}",serialize(count)?,serialize(price)?,serialize(&context)?)
-                } else {
-                    return Err(failure("Event requires product or cart"));
-                };
-                Ok(Value::scalar(payload))
-            }
-            "json" => {
-                let text = if self.context.fixture["manifest"]["mock_contract"]["json_object_order"]
-                    == "sorted"
-                {
-                    // serde_json maps sort keys recursively for the declared mock protocol.
-                    let value = serde_json::to_value(input.to_value()).map_err(failure)?;
-                    serde_json::to_string(&value).map_err(failure)?
-                } else {
-                    serde_json::to_string(&input.to_value()).map_err(failure)?
-                };
-                Ok(Value::scalar(text))
-            }
-            "preload_tag" => {
-                let mut output = format!(
-                    "<link rel=\"preload\" href=\"{}\"",
-                    html_escape(&input.to_kstr())
-                );
-                for (name, value) in keyword {
-                    output.push_str(&format!(" {name}=\"{}\"", html_escape(&value.to_kstr())));
-                }
-                output.push('>');
-                Ok(Value::scalar(output))
-            }
-            "stylesheet_tag" => {
-                if keyword.keys().any(|key| *key != "preload") {
-                    return Err(failure("Unsupported stylesheet_tag options"));
-                }
-                let url = html_escape(&input.to_kstr());
-                let preload = if keyword
-                    .get("preload")
-                    .is_some_and(|value| value.query_state(State::Truthy))
-                {
-                    format!("<link rel=\"preload\" href=\"{url}\" as=\"style\">")
-                } else {
-                    String::new()
-                };
-                Ok(Value::scalar(format!(
-                    "{preload}<link rel=\"stylesheet\" href=\"{url}\">"
-                )))
-            }
-            "link_to" => {
-                let url = positional
-                    .first()
-                    .ok_or_else(|| failure("link_to requires URL"))?
-                    .to_kstr();
-                Ok(Value::scalar(format!(
-                    "<a href=\"{}\">{}</a>",
-                    html_escape(&url),
-                    html_escape(&input.to_kstr())
-                )))
-            }
-            "font_modify" => {
-                let mut font = fixture_font(input)?;
-                let property = positional
-                    .first()
-                    .ok_or_else(|| failure("font_modify requires property"))?
-                    .to_kstr();
-                let value = positional
-                    .get(1)
-                    .ok_or_else(|| failure("font_modify requires value"))?;
-                match property.as_str() {
-                    "weight" => {
-                        let weight = if value.to_kstr() == "bold" {
-                            700
-                        } else {
-                            value
-                                .as_scalar()
-                                .and_then(|value| value.to_integer())
-                                .ok_or_else(|| failure("Font weight requires integer"))?
-                        };
-                        font.insert("weight".into(), Value::scalar(weight));
+                "placeholder_svg_tag" => {
+                    if input.to_kstr() != "hero-apparel-1" {
+                        return Err(failure("Unsupported fixture placeholder"));
                     }
-                    "style" => {
-                        if !["normal", "italic"].contains(&value.to_kstr().as_str()) {
-                            return Err(failure("Unsupported font style"));
+                    let class = positional
+                        .first()
+                        .map(|value| value.to_kstr().into_owned())
+                        .unwrap_or_default();
+                    let class = class
+                        .replace('&', "&amp;")
+                        .replace('"', "&quot;")
+                        .replace('<', "&lt;")
+                        .replace('>', "&gt;");
+                    Ok(Value::scalar(format!("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1200 800\" class=\"{class}\" role=\"img\" aria-label=\"Fixture placeholder\"><rect width=\"1200\" height=\"800\" fill=\"#e8e8e8\"/></svg>")))
+                }
+                "color_brightness" => {
+                    if !positional.is_empty() || !keyword.is_empty() {
+                        return Err(failure("color_brightness accepts no arguments"));
+                    }
+                    let color = Color::parse(input.to_kstr().as_str())?;
+                    Ok(Value::scalar(
+                        (f64::from(color.red) * 299.0
+                            + f64::from(color.green) * 587.0
+                            + f64::from(color.blue) * 114.0)
+                            / 1000.0,
+                    ))
+                }
+                "t" => {
+                    host_profile_result!(DEBUG, "horizon.translate", { kind = "translation" }, {
+                        let key = input.to_kstr();
+                        let mut text = &self.context.locales;
+                        for part in key.split('.') {
+                            text = text.get(part).ok_or_else(|| {
+                                failure(format!("Missing fixture translation: {key}"))
+                            })?;
                         }
-                        font.insert("style".into(), value.clone());
+                        if let Some(count) = keyword.get("count").filter(|_| text.is_object()) {
+                            let count = count.as_scalar().and_then(|value| value.to_integer());
+                            let category = match count {
+                                Some(1) => "one",
+                                Some(count) if self.context.locale == "pl" => {
+                                    let count = count.unsigned_abs();
+                                    if (2..=4).contains(&(count % 10))
+                                        && !(12..=14).contains(&(count % 100))
+                                    {
+                                        "few"
+                                    } else {
+                                        "many"
+                                    }
+                                }
+                                _ => "other",
+                            };
+                            text = text.get(category).ok_or_else(|| {
+                                failure(format!(
+                                    "Missing fixture plural translation: {key}.{category}"
+                                ))
+                            })?;
+                        }
+                        let text = text
+                            .as_str()
+                            .ok_or_else(|| failure("Fixture translation must be scalar"))?;
+                        static MATCHER: LazyLock<std::result::Result<regex::Regex, regex::Error>> =
+                            LazyLock::new(|| regex::Regex::new(r"\{\{\s*(\w+)\s*\}\}"));
+                        let matcher = MATCHER.as_ref().map_err(failure)?;
+                        Ok(Value::scalar(
+                            matcher
+                                .replace_all(text, |captures: &regex::Captures<'_>| {
+                                    captures
+                                        .get(1)
+                                        .and_then(|name| keyword.get(name.as_str()))
+                                        .map(|value| value.to_kstr().into_string())
+                                        .unwrap_or_else(|| {
+                                            captures
+                                                .get(0)
+                                                .map(|matched| matched.as_str())
+                                                .unwrap_or("")
+                                                .to_owned()
+                                        })
+                                })
+                                .into_owned(),
+                        ))
+                    })
+                }
+                "image_url" => {
+                    let image = input
+                        .as_object()
+                        .ok_or_else(|| failure("Fixture image_url requires image object"))?;
+                    let source = image
+                        .get("src")
+                        .ok_or_else(|| failure("Image requires src"))?
+                        .to_kstr();
+                    let width = keyword
+                        .get("width")
+                        .and_then(|value| value.as_scalar())
+                        .and_then(|value| value.to_integer())
+                        .ok_or_else(|| failure("image_url requires width"))?;
+                    if keyword.len() != 1 || width <= 0 {
+                        return Err(failure("Unsupported image_url options"));
                     }
-                    _ => return Err(failure("Unsupported font property")),
+                    Ok(Value::scalar(format!("{source}?width={width}")))
                 }
-                Ok(Value::Object(font))
-            }
-            "font_face" => {
-                fixture_font(input)?;
-                if keyword.keys().any(|key| *key != "font_display") {
-                    return Err(failure("Unsupported font_face options"));
-                }
-                Ok(Value::scalar(""))
-            }
-            "date" => {
-                let format = positional
-                    .first()
-                    .ok_or_else(|| failure("date requires format"))?
-                    .to_kstr();
-                let value = if ["now", "today"].contains(&input.to_kstr().as_str()) {
-                    self.context.note("date:fixture_clock")?;
-                    liquid_core::model::to_value(&self.context.fixture["manifest"]["created_at"])?
-                } else {
-                    input.to_value()
-                };
-                let date = value.as_scalar().and_then(|value| value.to_date_time());
-                if let Some(date) = date {
-                    if !format.is_empty() {
-                        return Ok(Value::scalar(date.format(&format).map_err(failure)?));
+                "image_tag" => {
+                    let url = input.to_kstr();
+                    if !url.starts_with("/cdn/shop/") {
+                        return Err(failure("image_tag requires fixture URL"));
                     }
+                    let mut attributes = format!("src=\"{}\"", html_escape(&url));
+                    if let Some(widths) = keyword.get("widths") {
+                        let base = url
+                            .rsplit_once("?width=")
+                            .map(|(base, _)| base)
+                            .unwrap_or(&url);
+                        let widths = widths
+                            .to_kstr()
+                            .split(',')
+                            .map(|width| width.trim().parse::<i64>().map_err(failure))
+                            .collect::<Result<Vec<_>>>()?;
+                        let srcset = widths
+                            .iter()
+                            .map(|width| format!("{base}?width={width} {width}w"))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        attributes.push_str(&format!(" srcset=\"{}\"", html_escape(&srcset)));
+                    }
+                    for (name, value) in keyword {
+                        if name == "widths" || value.is_nil() {
+                            continue;
+                        }
+                        if !name
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte))
+                        {
+                            return Err(failure("Invalid image attribute"));
+                        }
+                        attributes
+                            .push_str(&format!(" {name}=\"{}\"", html_escape(&value.to_kstr())));
+                    }
+                    Ok(Value::scalar(format!("<img {attributes}>")))
                 }
-                Ok(value)
-            }
-            "payment_terms" => {
-                let form = input
-                    .as_object()
-                    .ok_or_else(|| failure("payment_terms requires form"))?;
-                if !form
-                    .get("type")
-                    .is_some_and(|value| ["cart", "product"].contains(&value.to_kstr().as_str()))
-                    || self.context.fixture["manifest"]["platform_capabilities"]["payment_terms"]
-                        != false
-                {
-                    return Err(failure(
-                        "payment_terms requires explicitly disabled product/cart financing",
-                    ));
+                "handleize" => {
+                    let text = input.to_kstr();
+                    if !text
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || b" _-".contains(&byte))
+                    {
+                        return Err(failure("Fixture handleize supports ASCII identifiers only"));
+                    }
+                    let text = text.to_ascii_lowercase().replace('_', "-");
+                    let text = regex::Regex::new(r"[ -]+")
+                        .map_err(failure)?
+                        .replace_all(&text, "-");
+                    Ok(Value::scalar(text.trim_matches('-').to_owned()))
                 }
-                Ok(Value::scalar(""))
-            }
-            "payment_button" => {
-                let form = input
-                    .as_object()
-                    .ok_or_else(|| failure("payment_button requires form"))?;
-                if form.get("type").map(|value| value.to_kstr()) != Some("product".into())
-                    || self.context.fixture["manifest"]["platform_capabilities"]["payment_button"]
+                "money" | "money_with_currency" | "money_without_currency" => {
+                    if self.context.fixture["globals"]["shop"]["currency"] != "USD" {
+                        return Err(failure("Fixture money supports USD only"));
+                    }
+                    let cents = if input.is_nil() {
+                        0
+                    } else {
+                        input
+                            .as_scalar()
+                            .and_then(|value| value.to_integer())
+                            .ok_or_else(|| failure("Money requires integer cents"))?
+                    };
+                    let absolute = cents.unsigned_abs();
+                    let digits = (absolute / 100).to_string();
+                    let mut grouped = String::new();
+                    for (index, digit) in digits.chars().enumerate() {
+                        if index != 0 && (digits.len() - index) % 3 == 0 {
+                            grouped.push(',');
+                        }
+                        grouped.push(digit);
+                    }
+                    let sign = if cents < 0 { "-" } else { "" };
+                    let currency = if self.name == "money_with_currency" {
+                        " USD"
+                    } else {
+                        ""
+                    };
+                    let symbol = if self.name == "money_without_currency" {
+                        ""
+                    } else {
+                        "$"
+                    };
+                    Ok(Value::scalar(format!(
+                        "{sign}{symbol}{grouped}.{:02}{currency}",
+                        absolute % 100
+                    )))
+                }
+                "inline_asset_content" | "asset_url" => {
+                    let name = input.to_kstr();
+                    if name.is_empty()
+                        || !name
+                            .bytes()
+                            .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
+                    {
+                        return Err(failure("Invalid fixture asset name"));
+                    }
+                    let body = self.context.asset_content(name.as_str())?;
+                    Ok(Value::scalar(if self.name == "asset_url" {
+                        format!("/assets/{name}")
+                    } else {
+                        body
+                    }))
+                }
+                "standard_event_data" => {
+                    let resource = input
+                        .as_object()
+                        .ok_or_else(|| failure("Event requires product/cart object"))?;
+                    if positional.first().map(|value| value.to_kstr()) != Some("view".into()) {
+                        return Err(failure("Fixture supports product/cart view events only"));
+                    }
+                    let context = keyword.get("context").cloned().unwrap_or(Value::Nil);
+                    let serialize = |value: &dyn ValueView| {
+                        serde_json::to_string(&value.to_value()).map_err(failure)
+                    };
+                    let payload = if resource.contains_key("products")
+                        && resource.contains_key("id")
+                    {
+                        let id = resource
+                            .get("id")
+                            .ok_or_else(|| failure("Collection requires id"))?;
+                        format!(
+                            "{{\"event\":\"view\",\"collection_id\":{},\"context\":{}}}",
+                            serialize(id)?,
+                            serialize(&context)?
+                        )
+                    } else if let Some(id) = resource.get("id") {
+                        format!(
+                            "{{\"event\":\"view\",\"product_id\":{},\"context\":{}}}",
+                            serialize(id)?,
+                            serialize(&context)?
+                        )
+                    } else if resource.contains_key("items") && resource.contains_key("total_price")
+                    {
+                        let count = resource
+                            .get("item_count")
+                            .ok_or_else(|| failure("Cart event requires item_count"))?;
+                        let price = resource
+                            .get("total_price")
+                            .ok_or_else(|| failure("Cart event requires total_price"))?;
+                        format!("{{\"event\":\"view\",\"cart_item_count\":{},\"cart_total_price\":{},\"context\":{}}}",serialize(count)?,serialize(price)?,serialize(&context)?)
+                    } else {
+                        return Err(failure("Event requires product or cart"));
+                    };
+                    Ok(Value::scalar(payload))
+                }
+                "json" => {
+                    host_profile_result!(
+                        DEBUG,
+                        "horizon.json",
+                        {
+                            mode = if self.context.fixture["manifest"]["mock_contract"]
+                                ["json_object_order"]
+                                == "sorted"
+                            {
+                                "sorted"
+                            } else {
+                                "legacy"
+                            }
+                        },
+                        {
+                            let text = if self.context.fixture["manifest"]["mock_contract"]
+                                ["json_object_order"]
+                                == "sorted"
+                            {
+                                // serde_json maps sort keys recursively for the declared mock protocol.
+                                let value =
+                                    serde_json::to_value(input.to_value()).map_err(failure)?;
+                                serde_json::to_string(&value).map_err(failure)?
+                            } else {
+                                serde_json::to_string(&input.to_value()).map_err(failure)?
+                            };
+                            Ok(Value::scalar(text))
+                        }
+                    )
+                }
+                "preload_tag" => {
+                    let mut output = format!(
+                        "<link rel=\"preload\" href=\"{}\"",
+                        html_escape(&input.to_kstr())
+                    );
+                    for (name, value) in keyword {
+                        output.push_str(&format!(" {name}=\"{}\"", html_escape(&value.to_kstr())));
+                    }
+                    output.push('>');
+                    Ok(Value::scalar(output))
+                }
+                "stylesheet_tag" => {
+                    if keyword.keys().any(|key| *key != "preload") {
+                        return Err(failure("Unsupported stylesheet_tag options"));
+                    }
+                    let url = html_escape(&input.to_kstr());
+                    let preload = if keyword
+                        .get("preload")
+                        .is_some_and(|value| value.query_state(State::Truthy))
+                    {
+                        format!("<link rel=\"preload\" href=\"{url}\" as=\"style\">")
+                    } else {
+                        String::new()
+                    };
+                    Ok(Value::scalar(format!(
+                        "{preload}<link rel=\"stylesheet\" href=\"{url}\">"
+                    )))
+                }
+                "link_to" => {
+                    let url = positional
+                        .first()
+                        .ok_or_else(|| failure("link_to requires URL"))?
+                        .to_kstr();
+                    Ok(Value::scalar(format!(
+                        "<a href=\"{}\">{}</a>",
+                        html_escape(&url),
+                        html_escape(&input.to_kstr())
+                    )))
+                }
+                "font_modify" => {
+                    let mut font = fixture_font(input)?;
+                    let property = positional
+                        .first()
+                        .ok_or_else(|| failure("font_modify requires property"))?
+                        .to_kstr();
+                    let value = positional
+                        .get(1)
+                        .ok_or_else(|| failure("font_modify requires value"))?;
+                    match property.as_str() {
+                        "weight" => {
+                            let weight = if value.to_kstr() == "bold" {
+                                700
+                            } else {
+                                value
+                                    .as_scalar()
+                                    .and_then(|value| value.to_integer())
+                                    .ok_or_else(|| failure("Font weight requires integer"))?
+                            };
+                            font.insert("weight".into(), Value::scalar(weight));
+                        }
+                        "style" => {
+                            if !["normal", "italic"].contains(&value.to_kstr().as_str()) {
+                                return Err(failure("Unsupported font style"));
+                            }
+                            font.insert("style".into(), value.clone());
+                        }
+                        _ => return Err(failure("Unsupported font property")),
+                    }
+                    Ok(Value::Object(font))
+                }
+                "font_face" => {
+                    fixture_font(input)?;
+                    if keyword.keys().any(|key| *key != "font_display") {
+                        return Err(failure("Unsupported font_face options"));
+                    }
+                    Ok(Value::scalar(""))
+                }
+                "date" => {
+                    let format = positional
+                        .first()
+                        .ok_or_else(|| failure("date requires format"))?
+                        .to_kstr();
+                    let value = if ["now", "today"].contains(&input.to_kstr().as_str()) {
+                        self.context.note("date:fixture_clock")?;
+                        liquid_core::model::to_value(
+                            &self.context.fixture["manifest"]["created_at"],
+                        )?
+                    } else {
+                        input.to_value()
+                    };
+                    let date = value.as_scalar().and_then(|value| value.to_date_time());
+                    if let Some(date) = date {
+                        if !format.is_empty() {
+                            return Ok(Value::scalar(date.format(&format).map_err(failure)?));
+                        }
+                    }
+                    Ok(value)
+                }
+                "payment_terms" => {
+                    let form = input
+                        .as_object()
+                        .ok_or_else(|| failure("payment_terms requires form"))?;
+                    if !form.get("type").is_some_and(|value| {
+                        ["cart", "product"].contains(&value.to_kstr().as_str())
+                    }) || self.context.fixture["manifest"]["platform_capabilities"]
+                        ["payment_terms"]
                         != false
-                {
-                    return Err(failure(
+                    {
+                        return Err(failure(
+                            "payment_terms requires explicitly disabled product/cart financing",
+                        ));
+                    }
+                    Ok(Value::scalar(""))
+                }
+                "payment_button" => {
+                    let form = input
+                        .as_object()
+                        .ok_or_else(|| failure("payment_button requires form"))?;
+                    if form.get("type").map(|value| value.to_kstr()) != Some("product".into())
+                        || self.context.fixture["manifest"]["platform_capabilities"]
+                            ["payment_button"]
+                            != false
+                    {
+                        return Err(failure(
                         "payment_button requires explicitly disabled product accelerated checkout",
                     ));
-                }
-                Ok(Value::scalar(""))
-            }
-            "item_count_for_variant" => {
-                let cart = input
-                    .as_object()
-                    .ok_or_else(|| failure("Variant count requires cart"))?;
-                let items = cart
-                    .get("items")
-                    .and_then(ValueView::as_array)
-                    .ok_or_else(|| failure("Cart requires items"))?;
-                let variant_id = positional
-                    .first()
-                    .ok_or_else(|| failure("Variant count requires variant_id"))?;
-                let mut quantity = 0i64;
-                for item in items.values() {
-                    let item = item
-                        .as_object()
-                        .ok_or_else(|| failure("Cart item requires object"))?;
-                    let id = item.get("variant_id").or_else(|| {
-                        item.get("variant")
-                            .and_then(ValueView::as_object)
-                            .and_then(|variant| variant.get("id"))
-                    });
-                    if id.is_some_and(|id| id.to_value() == *variant_id) {
-                        quantity += item
-                            .get("quantity")
-                            .and_then(ValueView::as_scalar)
-                            .and_then(|quantity| quantity.to_integer())
-                            .ok_or_else(|| failure("Cart item requires quantity"))?;
                     }
+                    Ok(Value::scalar(""))
                 }
-                Ok(Value::scalar(quantity))
-            }
-            "color_contrast" => {
-                let first = Color::parse(input.to_kstr().as_str())?.luminance();
-                let second = Color::parse(
-                    positional
+                "item_count_for_variant" => {
+                    let cart = input
+                        .as_object()
+                        .ok_or_else(|| failure("Variant count requires cart"))?;
+                    let items = cart
+                        .get("items")
+                        .and_then(ValueView::as_array)
+                        .ok_or_else(|| failure("Cart requires items"))?;
+                    let variant_id = positional
                         .first()
-                        .ok_or_else(|| failure("color_contrast requires second color"))?
-                        .to_kstr()
-                        .as_str(),
-                )?
-                .luminance();
-                let contrast = (first.max(second) + 0.05) / (first.min(second) + 0.05);
-                Ok(Value::scalar((contrast * 10.0).round() / 10.0))
-            }
-            "color_lighten" | "color_darken" => {
-                let amount = positional
-                    .first()
-                    .and_then(ValueView::as_scalar)
-                    .and_then(|value| value.to_float())
-                    .ok_or_else(|| failure("Color shift requires amount"))?;
-                if !(0.0..=100.0).contains(&amount) {
-                    return Err(failure("Color shift must be 0..100"));
+                        .ok_or_else(|| failure("Variant count requires variant_id"))?;
+                    let mut quantity = 0i64;
+                    for item in items.values() {
+                        let item = item
+                            .as_object()
+                            .ok_or_else(|| failure("Cart item requires object"))?;
+                        let id = item.get("variant_id").or_else(|| {
+                            item.get("variant")
+                                .and_then(ValueView::as_object)
+                                .and_then(|variant| variant.get("id"))
+                        });
+                        if id.is_some_and(|id| id.to_value() == *variant_id) {
+                            quantity += item
+                                .get("quantity")
+                                .and_then(ValueView::as_scalar)
+                                .and_then(|quantity| quantity.to_integer())
+                                .ok_or_else(|| failure("Cart item requires quantity"))?;
+                        }
+                    }
+                    Ok(Value::scalar(quantity))
                 }
-                Ok(Value::scalar(
-                    Color::parse(input.to_kstr().as_str())?.shifted_lightness(
-                        if self.name == "color_darken" {
-                            -amount
-                        } else {
-                            amount
-                        },
-                    ),
-                ))
-            }
-            "color_modify" => {
-                let property = positional
-                    .first()
-                    .ok_or_else(|| failure("color_modify requires property"))?
-                    .to_kstr();
-                let amount = positional
-                    .get(1)
-                    .and_then(ValueView::as_scalar)
-                    .and_then(|value| value.to_float())
-                    .ok_or_else(|| failure("color_modify requires alpha"))?;
-                if property != "alpha" || !(0.0..=1.0).contains(&amount) {
-                    return Err(failure("color_modify supports alpha0..1 only"));
+                "color_contrast" => {
+                    let first = Color::parse(input.to_kstr().as_str())?.luminance();
+                    let second = Color::parse(
+                        positional
+                            .first()
+                            .ok_or_else(|| failure("color_contrast requires second color"))?
+                            .to_kstr()
+                            .as_str(),
+                    )?
+                    .luminance();
+                    let contrast = (first.max(second) + 0.05) / (first.min(second) + 0.05);
+                    Ok(Value::scalar((contrast * 10.0).round() / 10.0))
                 }
-                let color = Color::parse(input.to_kstr().as_str())?;
-                Ok(Value::scalar(format!(
-                    "rgba({}, {}, {}, {})",
-                    color.red,
-                    color.green,
-                    color.blue,
-                    positional[1].to_kstr()
-                )))
-            }
-            "md5" => {
-                if !positional.is_empty() || !keyword.is_empty() {
-                    return Err(failure("md5 accepts no arguments"));
+                "color_lighten" | "color_darken" => {
+                    let amount = positional
+                        .first()
+                        .and_then(ValueView::as_scalar)
+                        .and_then(|value| value.to_float())
+                        .ok_or_else(|| failure("Color shift requires amount"))?;
+                    if !(0.0..=100.0).contains(&amount) {
+                        return Err(failure("Color shift must be 0..100"));
+                    }
+                    Ok(Value::scalar(
+                        Color::parse(input.to_kstr().as_str())?.shifted_lightness(
+                            if self.name == "color_darken" {
+                                -amount
+                            } else {
+                                amount
+                            },
+                        ),
+                    ))
                 }
-                Ok(Value::scalar(format!(
-                    "{:x}",
-                    md5::compute(input.to_kstr().as_bytes())
-                )))
+                "color_modify" => {
+                    let property = positional
+                        .first()
+                        .ok_or_else(|| failure("color_modify requires property"))?
+                        .to_kstr();
+                    let amount = positional
+                        .get(1)
+                        .and_then(ValueView::as_scalar)
+                        .and_then(|value| value.to_float())
+                        .ok_or_else(|| failure("color_modify requires alpha"))?;
+                    if property != "alpha" || !(0.0..=1.0).contains(&amount) {
+                        return Err(failure("color_modify supports alpha0..1 only"));
+                    }
+                    let color = Color::parse(input.to_kstr().as_str())?;
+                    Ok(Value::scalar(format!(
+                        "rgba({}, {}, {}, {})",
+                        color.red,
+                        color.green,
+                        color.blue,
+                        positional[1].to_kstr()
+                    )))
+                }
+                "md5" => {
+                    if !positional.is_empty() || !keyword.is_empty() {
+                        return Err(failure("md5 accepts no arguments"));
+                    }
+                    Ok(Value::scalar(format!(
+                        "{:x}",
+                        md5::compute(input.to_kstr().as_bytes())
+                    )))
+                }
+                _ => Err(failure(format!(
+                    "Executed unsupported fixture filter: {}",
+                    self.name
+                ))),
             }
-            _ => Err(failure(format!(
-                "Executed unsupported fixture filter: {}",
-                self.name
-            ))),
-        }
+        })
     }
 }
 
@@ -3015,119 +3250,144 @@ impl Renderer {
     }
 
     fn render(&mut self, scope: &str, only: Option<&str>) -> Result<RenderOutput> {
-        let context = &self.context;
-        let partials = &self.partials;
-        context.reset_request()?;
-        if !["hero", "template", "page"].contains(&scope) {
-            return Err(failure("Unsupported scope"));
-        }
-        let mut html = Vec::new();
-        let mut rendered = Vec::new();
-        let mut error = None;
-        for (position, id) in self.template["order"]
-            .as_array()
-            .ok_or_else(|| failure("Missing section order"))?
-            .iter()
-            .enumerate()
-        {
-            let id = id.as_str().ok_or_else(|| failure("Invalid section ID"))?;
-            let section = &self.template["sections"][id];
-            let kind = section["type"]
-                .as_str()
-                .ok_or_else(|| failure("Missing section type"))?;
-            if scope == "hero" && position != 0 {
-                continue;
-            }
-            if only.is_some_and(|only| only != kind && only != id) {
-                continue;
-            }
-            let render = (|| -> Result<Vec<u8>> {
+        host_profile_request!(
+            if ["hero", "template", "page"].contains(&scope) {
+                scope
+            } else {
+                "unknown"
+            },
+            {
+                let context = &self.context;
+                let partials = &self.partials;
+                context.reset_request()?;
+                if !["hero", "template", "page"].contains(&scope) {
+                    return Err(failure("Unsupported scope"));
+                }
+                let mut html = Vec::new();
                 let mut rendered = Vec::new();
-                context.render_section(
-                    &mut rendered,
-                    partials.as_ref(),
-                    id,
-                    section,
-                    position + 1,
-                )?;
-                Ok(rendered)
-            })();
-            match render {
-                Ok(bytes) => {
-                    html.extend(bytes);
-                    rendered.push(id.to_owned());
-                }
-                Err(failure) => {
-                    error = Some(failure.to_string());
-                    break;
-                }
-            }
-        }
-        if error.is_none() && scope == "page" {
-            let render = (|| -> Result<Vec<u8>> {
-                let mut globals = Object::new();
-                let body = String::from_utf8(html.clone()).map_err(failure)?;
-                globals.insert("content_for_layout".into(), Value::scalar(body));
-                globals.insert(
-                    "content_for_header".into(),
-                    Value::scalar("<!-- horizon-fixture-stylesheets -->"),
-                );
-                let globals = Arc::new(ScopeOverlay::root(globals));
-                let values = globals_view(&context.globals, globals.as_ref());
-                let runtime = RuntimeBuilder::new()
-                    .set_globals(&values)
-                    .set_partials(partials.as_ref())
-                    .build();
-                set_platform_bindings(&runtime, &globals);
-                let runtime = FixtureRuntime {
-                    inner: &runtime,
-                    name: "layout/theme",
-                    palette: &context.palette,
-                    focal_points: &context.focal_points,
-                };
-                let mut output = Vec::new();
-                context.record_source("layout/theme")?;
-                partials
-                    .get("layout/theme")?
-                    .render_to(&mut output, &runtime)?;
-                let body = String::from_utf8(output).map_err(failure)?;
-                let marker = "<!-- horizon-fixture-stylesheets -->";
-                if body.matches(marker).count() != 1 {
-                    return Err(failure("Page layout must expose content_for_header once"));
-                }
-                let css = context
-                    .styles
-                    .lock()
-                    .map_err(failure)?
+                let mut error = None;
+                for (position, id) in self.template["order"]
+                    .as_array()
+                    .ok_or_else(|| failure("Missing section order"))?
                     .iter()
-                    .map(|(_, body)| body.as_str())
-                    .collect::<String>();
-                Ok(body
-                    .replacen(
-                        marker,
-                        &format!("<style data-horizon-fixture>{css}</style>"),
-                        1,
+                    .enumerate()
+                {
+                    let id = id.as_str().ok_or_else(|| failure("Invalid section ID"))?;
+                    let section = &self.template["sections"][id];
+                    let kind = section["type"]
+                        .as_str()
+                        .ok_or_else(|| failure("Missing section type"))?;
+                    if scope == "hero" && position != 0 {
+                        continue;
+                    }
+                    if only.is_some_and(|only| only != kind && only != id) {
+                        continue;
+                    }
+                    let render = (|| -> Result<Vec<u8>> {
+                        let mut rendered = Vec::new();
+                        context.render_section(
+                            &mut rendered,
+                            partials.as_ref(),
+                            id,
+                            section,
+                            position + 1,
+                        )?;
+                        Ok(rendered)
+                    })();
+                    match render {
+                        Ok(bytes) => {
+                            html.extend(bytes);
+                            rendered.push(id.to_owned());
+                        }
+                        Err(failure) => {
+                            error = Some(failure.to_string());
+                            break;
+                        }
+                    }
+                }
+                if error.is_none() && scope == "page" {
+                    let render = (|| -> Result<Vec<u8>> {
+                        let mut globals = Object::new();
+                        let body = String::from_utf8(html.clone()).map_err(failure)?;
+                        globals.insert("content_for_layout".into(), Value::scalar(body));
+                        globals.insert(
+                            "content_for_header".into(),
+                            Value::scalar("<!-- horizon-fixture-stylesheets -->"),
+                        );
+                        let globals = Arc::new(ScopeOverlay::root(globals));
+                        let values = globals_view(&context.globals, globals.as_ref());
+                        let runtime = RuntimeBuilder::new()
+                            .set_globals(&values)
+                            .set_partials(partials.as_ref())
+                            .build();
+                        set_platform_bindings(&runtime, &globals);
+                        let runtime = FixtureRuntime {
+                            inner: &runtime,
+                            name: "layout/theme",
+                            palette: &context.palette,
+                            focal_points: &context.focal_points,
+                        };
+                        let mut output = Vec::new();
+                        context.record_source("layout/theme")?;
+                        host_profile_result!(
+                            DEBUG,
+                            "horizon.layout",
+                            { template = context.sources.profile_name("layout/theme") },
+                            {
+                                partials
+                                    .get("layout/theme")?
+                                    .render_to(&mut output, &runtime)
+                            }
+                        )?;
+                        let body = String::from_utf8(output).map_err(failure)?;
+                        let marker = "<!-- horizon-fixture-stylesheets -->";
+                        if body.matches(marker).count() != 1 {
+                            return Err(failure("Page layout must expose content_for_header once"));
+                        }
+                        let css =
+                            host_profile_result!(DEBUG, "horizon.css", { mode = "header" }, {
+                                Ok::<String, Error>(
+                                    context
+                                        .styles
+                                        .lock()
+                                        .map_err(failure)?
+                                        .iter()
+                                        .map(|(_, body)| body.as_str())
+                                        .collect::<String>(),
+                                )
+                            })?;
+                        Ok(body
+                            .replacen(
+                                marker,
+                                &format!("<style data-horizon-fixture>{css}</style>"),
+                                1,
+                            )
+                            .into_bytes())
+                    })();
+                    match render {
+                        Ok(bytes) => html = bytes,
+                        Err(failure) => error = Some(failure.to_string()),
+                    }
+                }
+                let css = host_profile_result!(DEBUG, "horizon.css", { mode = "artifact" }, {
+                    Ok::<String, Error>(
+                        context
+                            .styles
+                            .lock()
+                            .map_err(failure)?
+                            .iter()
+                            .map(|(_, body)| body.as_str())
+                            .collect::<String>(),
                     )
-                    .into_bytes())
-            })();
-            match render {
-                Ok(bytes) => html = bytes,
-                Err(failure) => error = Some(failure.to_string()),
+                })?;
+                Ok(RenderOutput {
+                    html,
+                    css,
+                    sections: rendered,
+                    error,
+                })
             }
-        }
-        let css = context
-            .styles
-            .lock()
-            .map_err(failure)?
-            .iter()
-            .map(|(_, body)| body.as_str())
-            .collect::<String>();
-        Ok(RenderOutput {
-            html,
-            css,
-            sections: rendered,
-            error,
-        })
+        )
     }
 
     fn report(&self, output: &RenderOutput) -> Result<Json> {
@@ -3194,6 +3454,8 @@ fn benchmark(
         .checked_add(iterations)
         .ok_or("Iteration count overflow")?
     {
+        #[cfg(feature = "profiling")]
+        let _phase = profiling::phase(if index < warmup { "warmup" } else { "measured" });
         let start = Instant::now();
         let output = renderer.render(scope, only)?;
         let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
@@ -3376,6 +3638,8 @@ fn serve_stdio(
         return Err(error.into());
     }
     for _ in 0..warmup {
+        #[cfg(feature = "profiling")]
+        let _phase = profiling::phase("warmup");
         let warmed = renderer.render(scope, None).map_err(Into::into);
         let checked = warmed.and_then(|output| oracle.verify(&output));
         if let Err(error) = checked {
@@ -3402,7 +3666,11 @@ fn serve_stdio(
                 return Err(error);
             }
         };
-        let rendered = renderer.render(scope, None).map_err(Into::into);
+        let rendered = {
+            #[cfg(feature = "profiling")]
+            let _phase = profiling::phase("serve");
+            renderer.render(scope, None).map_err(Into::into)
+        };
         write_render_response(writer, id, rendered, oracle)?;
     }
 }
@@ -3422,17 +3690,230 @@ fn read_bounded_fixture(reader: &mut impl Read, limit: usize) -> WorkerResult<Ve
     Ok(bytes)
 }
 
-fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+fn parse_cli_options(
+    arguments: impl IntoIterator<Item = String>,
+) -> WorkerResult<BTreeMap<String, String>> {
     let mut options = BTreeMap::new();
-    let mut arguments = std::env::args().skip(1);
+    let mut arguments = arguments.into_iter();
     while let Some(key) = arguments.next() {
-        let value = if ["--serve-stdio", "--fixture-stdin"].contains(&key.as_str()) {
-            "true".to_owned()
-        } else {
-            arguments.next().ok_or("Each option requires a value")?
-        };
+        let value =
+            if ["--serve-stdio", "--fixture-stdin", "--profile-trace"].contains(&key.as_str()) {
+                "true".to_owned()
+            } else {
+                arguments.next().ok_or("Each option requires a value")?
+            };
+        if key.starts_with("--profile-") && options.contains_key(&key) {
+            return Err("Profiling options must not be repeated".into());
+        }
         options.insert(key, value);
     }
+    Ok(options)
+}
+
+fn validate_profile_options(options: &BTreeMap<String, String>) -> WorkerResult<()> {
+    if options.keys().any(|key| {
+        key.starts_with("--profile-")
+            && !["--profile-json", "--profile-level", "--profile-trace"].contains(&key.as_str())
+    }) {
+        return Err("Unknown profiling option".into());
+    }
+    let configured = ["--profile-json", "--profile-level", "--profile-trace"]
+        .iter()
+        .any(|key| options.contains_key(*key));
+    if !configured {
+        return Ok(());
+    }
+    #[cfg(not(feature = "profiling"))]
+    return Err("Profiling options require a build with --features profiling".into());
+    #[cfg(feature = "profiling")]
+    {
+        if options.get("--profile-json").is_none_or(String::is_empty) {
+            return Err("Profiling options require --profile-json PATH".into());
+        }
+        if options
+            .get("--profile-level")
+            .is_some_and(|level| !["templates", "detailed"].contains(&level.as_str()))
+        {
+            return Err("--profile-level must be templates or detailed".into());
+        }
+        if options
+            .get("--profile-trace")
+            .is_some_and(|value| value != "true")
+        {
+            return Err("--profile-trace is a bare flag".into());
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "profiling")]
+fn profile_path(path: &Path) -> WorkerResult<PathBuf> {
+    if path.as_os_str().is_empty()
+        || path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return Err("Profile path must be nonempty and contain no parent traversal".into());
+    }
+    let absolute = if path.is_absolute() {
+        path.to_owned()
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    for ancestor in absolute.ancestors() {
+        match fs::symlink_metadata(ancestor) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err("Profile path or ancestor must not be a symlink".into());
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    // Resolve the existing prefix so ./ spellings cannot bypass collision checks.
+    let mut prefix = absolute.as_path();
+    let mut missing = Vec::new();
+    while !prefix.exists() {
+        missing.push(prefix.file_name().ok_or("Invalid profile path")?.to_owned());
+        prefix = prefix.parent().ok_or("Invalid profile path parent")?;
+    }
+    let mut resolved = prefix.canonicalize()?;
+    for name in missing.into_iter().rev() {
+        resolved.push(name);
+    }
+    Ok(resolved)
+}
+
+#[cfg(feature = "profiling")]
+fn profile_source_root(build_root: &Path) -> WorkerResult<PathBuf> {
+    match build_root.canonicalize() {
+        Ok(path) => Ok(path),
+        // An installed binary need not retain the original build checkout.
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(build_root.to_owned()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+#[cfg(feature = "profiling")]
+fn validate_profile_path(options: &BTreeMap<String, String>) -> WorkerResult<PathBuf> {
+    let path = profile_path(Path::new(
+        options
+            .get("--profile-json")
+            .ok_or("Missing profile path")?,
+    ))?;
+    if path.exists() && !path.is_file() {
+        return Err("Profile output must be a regular file".into());
+    }
+    let source_root = profile_source_root(Path::new(env!("CARGO_MANIFEST_DIR")))?;
+    if path.starts_with(&source_root) || source_root.starts_with(&path) {
+        return Err("Profile output overlaps renderer source".into());
+    }
+    if path == std::env::current_exe()?.canonicalize()? {
+        return Err("Profile output overlaps renderer executable".into());
+    }
+    let theme = options
+        .get("--theme-root")
+        .or_else(|| options.get("--theme"))
+        .ok_or("--theme-root is required")?;
+    let theme = Path::new(theme).canonicalize()?;
+    if path.starts_with(&theme) || theme.starts_with(&path) {
+        return Err("Profile output overlaps theme input".into());
+    }
+    if let Some(fixture) = options.get("--fixture").or_else(|| options.get("--store")) {
+        let fixture = Path::new(fixture).canonicalize()?;
+        if path == fixture || fixture.starts_with(&path) {
+            return Err("Profile output overlaps fixture input".into());
+        }
+    }
+    if let Some(output) = options.get("--output-dir") {
+        let output = profile_path(Path::new(output))?;
+        if path == output
+            || output.starts_with(&path)
+            || ["index.html", "styles.css", "report.json"]
+                .iter()
+                .any(|name| path == output.join(name))
+        {
+            return Err("Profile output overlaps rendered artifacts".into());
+        }
+    }
+    if let Some(benchmark) = options.get("--benchmark-json") {
+        let benchmark = profile_path(Path::new(benchmark))?;
+        if path == benchmark || benchmark.starts_with(&path) {
+            return Err("Profile output overlaps benchmark report".into());
+        }
+    }
+    Ok(path)
+}
+
+#[cfg(feature = "profiling")]
+fn write_profile(path: &Path, report: &Json) -> WorkerResult<()> {
+    let parent = path.parent().ok_or("Profile output requires parent")?;
+    fs::create_dir_all(parent)?;
+    // Validate again after creating parents and before any write.
+    profile_path(path)?;
+    let temporary = parent.join(format!(".horizon-profile-{}.tmp", std::process::id()));
+    let mut created = false;
+    let result = (|| -> WorkerResult<()> {
+        let mut file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&temporary)?;
+        created = true;
+        serde_json::to_writer_pretty(&mut file, report)?;
+        file.write_all(b"\n")?;
+        file.flush()?;
+        fs::rename(&temporary, path)?;
+        Ok(())
+    })();
+    if result.is_err() && created {
+        // Do not remove another process's preexisting temporary file.
+        let _ = fs::remove_file(&temporary);
+    }
+    result
+}
+
+#[cfg(feature = "profiling")]
+fn with_profile_output(
+    options: &BTreeMap<String, String>,
+    render: impl FnOnce() -> WorkerResult<()>,
+) -> WorkerResult<()> {
+    let path = validate_profile_path(options)?;
+    match fs::remove_file(&path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    let controller = profiling::Controller::new(
+        options
+            .get("--profile-level")
+            .is_some_and(|level| level == "detailed"),
+        options.contains_key("--profile-trace"),
+    );
+    let rendered = controller.with_default(render);
+    let mut report = controller.report();
+    report["operation_succeeded"] = Json::Bool(rendered.is_ok());
+    let exported = write_profile(&path, &report);
+    match rendered {
+        Ok(()) => exported,
+        Err(error) => {
+            if exported.is_err() {
+                eprintln!("Profile export failed after unsuccessful rendering");
+            }
+            Err(error)
+        }
+    }
+}
+
+fn main() -> WorkerResult<()> {
+    let options = parse_cli_options(std::env::args().skip(1))?;
+    validate_profile_options(&options)?;
+    #[cfg(feature = "profiling")]
+    if options.contains_key("--profile-json") {
+        return with_profile_output(&options, || run_cli(&options));
+    }
+    run_cli(&options)
+}
+fn run_cli(options: &BTreeMap<String, String>) -> WorkerResult<()> {
     let theme = PathBuf::from(
         options
             .get("--theme-root")
@@ -3486,19 +3967,25 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             Err(error) => return Err(error.into()),
         }
     }
+    #[cfg(feature = "profiling")]
+    let phase = profiling::phase("initialize");
     let start = Instant::now();
-    let mut renderer = if stdin_fixture {
-        let bytes = read_fixture_stdin(&mut io::stdin().lock())?;
-        Renderer::from_fixture_bytes(theme, bytes, page, options.contains_key("--parse-source"))?
-    } else {
-        Renderer::new(
-            theme,
-            Path::new(store.ok_or("Missing fixture path")?),
-            page,
-            options.contains_key("--parse-source"),
-        )?
-    };
+    let mut renderer = host_profile_result!(DEBUG, "horizon.initialize", { kind = "renderer" }, {
+        if stdin_fixture {
+            let bytes = read_fixture_stdin(&mut io::stdin().lock())?;
+            Renderer::from_fixture_bytes(theme, bytes, page, options.contains_key("--parse-source"))
+        } else {
+            Renderer::new(
+                theme,
+                Path::new(store.ok_or("Missing fixture path")?),
+                page,
+                options.contains_key("--parse-source"),
+            )
+        }
+    })?;
     let initialization_ms = start.elapsed().as_secs_f64() * 1000.0;
+    #[cfg(feature = "profiling")]
+    drop(phase);
     if serving {
         if renderer.context.fixture["theme"]["sha"] != HORIZON_THEME_SHA {
             return Err("Serving fixture theme SHA does not match the pin".into());
@@ -3518,12 +4005,14 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         );
     }
     if let Some(name) = options.get("--parse-source") {
+        #[cfg(feature = "profiling")]
+        let _phase = profiling::phase("single");
         renderer.parse_source(name)?;
         println!("Parsed {name}");
         return Ok(());
     }
     if let Some(path) = options.get("--benchmark-json") {
-        let report = benchmark(&mut renderer, &options, initialization_ms)?;
+        let report = benchmark(&mut renderer, options, initialization_ms)?;
         let text = serde_json::to_string_pretty(&report)?;
         if let Some(parent) = Path::new(path)
             .parent()
@@ -3540,6 +4029,8 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             .get("--output-dir")
             .ok_or("--output-dir is required")?,
     );
+    #[cfg(feature = "profiling")]
+    let _phase = profiling::phase("single");
     let output = renderer.render(scope, options.get("--only").map(String::as_str))?;
     renderer.write_output(&output_dir, &output)?;
     output.ensure_success()?;
@@ -3550,6 +4041,290 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn profile_flags_are_bounded_and_bare_trace_keeps_next_option() {
+        let options = parse_cli_options(
+            ["--profile-trace", "--profile-json", "profile.json"].map(str::to_owned),
+        )
+        .unwrap();
+        assert_eq!(options["--profile-trace"], "true");
+        assert_eq!(options["--profile-json"], "profile.json");
+        assert!(parse_cli_options(
+            ["--profile-json", "one", "--profile-json", "two",].map(str::to_owned)
+        )
+        .is_err());
+        assert!(validate_profile_options(&BTreeMap::new()).is_ok());
+        for options in [
+            BTreeMap::from([("--profile-level".into(), "detailed".into())]),
+            BTreeMap::from([("--profile-trace".into(), "true".into())]),
+            BTreeMap::from([("--profile-unknown".into(), "anything".into())]),
+            BTreeMap::from([
+                ("--profile-json".into(), "profile.json".into()),
+                ("--profile-level".into(), "invalid".into()),
+            ]),
+        ] {
+            assert!(validate_profile_options(&options).is_err());
+        }
+        #[cfg(not(feature = "profiling"))]
+        assert!(validate_profile_options(&options)
+            .unwrap_err()
+            .to_string()
+            .contains("--features profiling"));
+        #[cfg(feature = "profiling")]
+        assert!(validate_profile_options(&options).is_ok());
+    }
+
+    #[cfg(feature = "profiling")]
+    fn profile_fixture() -> Renderer {
+        prepared(
+            &[
+                ("sections/safe", "{% assign private = 'SECRET_PROFILE_VALUE' %}{{ private }}{% render 'leaf', private: private %}{% stylesheet %}.safe{color:red}{% endstylesheet %}{% schema %}{\"tag\":null}{% endschema %}"),
+                ("leaf", "{{ private | append: '-leaf' }}"),
+            ],
+            json!({"safe":{"type":"safe"}}),
+            json!(["safe"]),
+        )
+    }
+
+    #[cfg(feature = "profiling")]
+    #[test]
+    fn profile_preserves_exact_output_and_separates_warmup_and_measured_spans() {
+        let mut renderer = profile_fixture();
+        let plain = renderer.render("template", None).unwrap();
+        let controller = profiling::Controller::new(true, true);
+        let options = BTreeMap::from([
+            ("--iterations".to_owned(), "2".to_owned()),
+            ("--warmup".to_owned(), "1".to_owned()),
+            ("--scope".to_owned(), "template".to_owned()),
+        ]);
+        let timed = controller
+            .with_default(|| benchmark(&mut renderer, &options, 0.0))
+            .unwrap();
+        assert_eq!(timed["html"], digest(&plain.html));
+        assert_eq!(timed["css"], digest(plain.css.as_bytes()));
+        let report = controller.report();
+        assert_eq!(report["complete"], true);
+        let rows = report["aggregates"].as_array().unwrap();
+        let requests = |phase| {
+            rows.iter()
+                .find(|row| row["span"] == "horizon.request" && row["phase"] == phase)
+                .unwrap()
+        };
+        assert_eq!(requests("warmup")["calls"], 1);
+        assert_eq!(requests("measured")["calls"], 2);
+        assert_eq!(requests("measured")["ok"], 2);
+        assert!(rows.iter().any(|row| row["span"] == "horizon.keyword_own"));
+        assert!(rows.iter().any(|row| row["fields"]["template"] == "leaf"));
+        let serialized = report.to_string();
+        assert!(!serialized.contains("SECRET_PROFILE_VALUE"));
+        assert!(!serialized.contains(".safe{color:red}"));
+        assert!(!serialized.contains("{%"));
+
+        let coarse = profiling::Controller::new(false, false);
+        let output = coarse
+            .with_default(|| renderer.render("template", None))
+            .unwrap();
+        assert_eq!(output.html, plain.html);
+        assert_eq!(output.css, plain.css);
+        assert!(!coarse.report()["aggregates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["span"] == "horizon.keyword_own"));
+    }
+
+    #[cfg(feature = "profiling")]
+    #[test]
+    fn profiled_stdio_keeps_frames_and_separates_warmup_from_serving() {
+        let (mut renderer, oracle, expected_html, expected_css) = served_fixture();
+        let controller = profiling::Controller::new(true, true);
+        let mut input = io::Cursor::new(
+            b"{\"action\":\"render\",\"request_id\":0}\n{\"action\":\"render\",\"request_id\":1}\n"
+                .to_vec(),
+        );
+        let mut output = Vec::new();
+        controller
+            .with_default(|| {
+                serve_stdio(&mut renderer, "page", 2, &oracle, &mut input, &mut output)
+            })
+            .unwrap();
+        let mut frames = io::Cursor::new(output);
+        assert_eq!(read_header(&mut frames)["action"], "ready");
+        for id in 0..2 {
+            let header = read_header(&mut frames);
+            assert_eq!(header["request_id"], id);
+            let mut html = vec![0; header["html_bytes"].as_u64().unwrap() as usize];
+            let mut css = vec![0; header["css_bytes"].as_u64().unwrap() as usize];
+            frames.read_exact(&mut html).unwrap();
+            frames.read_exact(&mut css).unwrap();
+            assert_eq!(html, expected_html);
+            assert_eq!(css, expected_css.as_bytes());
+        }
+        assert_eq!(frames.position() as usize, frames.get_ref().len());
+        let report = controller.report();
+        assert_eq!(report["complete"], true);
+        let rows = report["aggregates"].as_array().unwrap();
+        for phase in ["warmup", "serve"] {
+            let request = rows
+                .iter()
+                .find(|row| row["span"] == "horizon.request" && row["phase"] == phase)
+                .unwrap();
+            assert_eq!(request["calls"], 2);
+            assert_eq!(request["ok"], 2);
+        }
+    }
+
+    #[cfg(feature = "profiling")]
+    fn profile_output_options() -> (PathBuf, BTreeMap<String, String>) {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let root = std::env::temp_dir().join(format!(
+            "horizon-profile-test-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        fs::create_dir_all(root.join("theme")).unwrap();
+        fs::write(root.join("store.json"), "{}").unwrap();
+        let options = BTreeMap::from([
+            (
+                "--theme-root".into(),
+                root.join("theme").display().to_string(),
+            ),
+            (
+                "--fixture".into(),
+                root.join("store.json").display().to_string(),
+            ),
+            (
+                "--profile-json".into(),
+                root.join("output/profile.json").display().to_string(),
+            ),
+            (
+                "--output-dir".into(),
+                root.join("output").display().to_string(),
+            ),
+        ]);
+        (root, options)
+    }
+
+    #[cfg(feature = "profiling")]
+    #[test]
+    fn failed_profile_exports_failure_without_error_values_and_replaces_stale_success() {
+        let (root, options) = profile_output_options();
+        let path = Path::new(&options["--profile-json"]);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, "{\"operation_succeeded\":true,\"stale\":true}").unwrap();
+        let mut renderer = prepared(
+            &[(
+                "sections/broken",
+                "Before{% render 'MISSING_SECRET_PROFILE_NAME' %}",
+            )],
+            json!({"broken":{"type":"broken"}}),
+            json!(["broken"]),
+        );
+        let result = with_profile_output(&options, || {
+            let _phase = profiling::phase("single");
+            renderer.render("template", None)?.ensure_success()
+        });
+        assert!(result.is_err());
+        let report: Json = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(report["operation_succeeded"], false);
+        assert_eq!(report["complete"], true);
+        assert!(report["stale"].is_null());
+        let request = report["aggregates"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["span"] == "horizon.request")
+            .unwrap();
+        assert_eq!(request["error"], 1);
+        assert!(!report.to_string().contains("MISSING_SECRET_PROFILE_NAME"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(feature = "profiling")]
+    #[test]
+    fn profile_source_guard_allows_installed_binaries_without_the_build_checkout() {
+        let (root, _) = profile_output_options();
+        assert_eq!(
+            profile_source_root(&root).unwrap(),
+            root.canonicalize().unwrap()
+        );
+        let vanished = root.join("vanished-build-checkout");
+        assert_eq!(profile_source_root(&vanished).unwrap(), vanished);
+        let not_directory = root.join("store.json/child");
+        assert!(profile_source_root(&not_directory).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(feature = "profiling")]
+    #[test]
+    fn profile_output_rejects_inputs_reports_and_symlinks_before_removal() {
+        let (root, options) = profile_output_options();
+        let mut invalid = options.clone();
+        for path in [
+            root.join("store.json"),
+            root.join("theme/profile.json"),
+            root.join("output/index.html"),
+            root.join("output/styles.css"),
+            root.join("output/report.json"),
+        ] {
+            invalid.insert("--profile-json".into(), path.display().to_string());
+            assert!(validate_profile_path(&invalid).is_err());
+        }
+        invalid.insert(
+            "--profile-json".into(),
+            root.join("benchmark.json").display().to_string(),
+        );
+        invalid.insert(
+            "--benchmark-json".into(),
+            root.join("benchmark.json").display().to_string(),
+        );
+        assert!(validate_profile_path(&invalid).is_err());
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.join("store.json"), root.join("link.json")).unwrap();
+            invalid.insert(
+                "--profile-json".into(),
+                root.join("link.json").display().to_string(),
+            );
+            assert!(validate_profile_path(&invalid).is_err());
+            std::os::unix::fs::symlink(root.join("theme"), root.join("linked-dir")).unwrap();
+            invalid.insert(
+                "--profile-json".into(),
+                root.join("linked-dir/profile.json").display().to_string(),
+            );
+            assert!(validate_profile_path(&invalid).is_err());
+        }
+        assert_eq!(fs::read(root.join("store.json")).unwrap(), b"{}");
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/horizon.rs");
+        let source_before = fs::read(&source).unwrap();
+        invalid.insert("--profile-json".into(), source.display().to_string());
+        assert!(
+            with_profile_output(&invalid, || panic!("input removal must be rejected")).is_err()
+        );
+        assert_eq!(fs::read(source).unwrap(), source_before);
+        invalid.insert(
+            "--profile-json".into(),
+            std::env::current_exe().unwrap().display().to_string(),
+        );
+        assert!(
+            with_profile_output(&invalid, || panic!("binary removal must be rejected")).is_err()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(feature = "profiling")]
+    #[test]
+    fn profile_export_failure_preserves_original_render_error() {
+        let (root, options) = profile_output_options();
+        let result = with_profile_output(&options, || {
+            fs::write(root.join("output"), "blocking parent")?;
+            Err("ORIGINAL_RENDER_ERROR".into())
+        });
+        assert_eq!(result.unwrap_err().to_string(), "ORIGINAL_RENDER_ERROR");
+        assert!(!root.join("output/profile.json").exists());
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn context(sources: &[(&str, &str)]) -> Arc<Context> {
         Arc::new(Context {

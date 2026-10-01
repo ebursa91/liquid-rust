@@ -137,3 +137,7 @@ The historical [seven-batch performance comparison](RESULTS.md) covers release R
 Shared authoritative store/configuration data is available through the native gRPC clients; see [DATA_SERVICE.md](DATA_SERVICE.md). Explicit local fixtures remain offline oracle inputs.
 
 The [current checkpoint](RESULTS.md) records 112 native gRPC scopes with exact Ruby/Rust parity, the [deep performance investigation](DEEP_PERFORMANCE.md) and [calibrated HTTP throughput](RPS_RESULTS.md). Shared section/closest contexts improved the 100-product collection’s batch medians by 25.8–28.5×; the final four-client HTTP medians were 35.75 Rust and 33.60 Ruby YJIT RPS. Full distributions, allocation boundaries and rejected candidates remain in the evidence.
+
+Opt-in Rust [render profiling](PROFILING.md) reports template/node/filter/lookup and
+platform costs with separate warmup/measured phases, bounded traces and reproducible
+feature-off/inactive/active overhead checks.

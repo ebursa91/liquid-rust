@@ -56,6 +56,8 @@ fn error_from_pair(pair: Pair, msg: String) -> Error {
 
 /// Parses the provided &str into a number of Renderable items.
 pub fn parse(text: &str, options: &Language) -> Result<Vec<Box<dyn Renderable>>> {
+    #[cfg(feature = "profiling")]
+    let _buffer = crate::profiling::ParseBufferGuard::new();
     let mut liquid = LiquidParser::parse(Rule::LaxLiquidFile, text)
         .expect("Parsing with Rule::LaxLiquidFile should not raise errors, but InvalidLiquid tokens instead.")
         .next()
@@ -185,6 +187,8 @@ fn parse_filter(filter: Pair, options: &Language) -> Result<Box<dyn Filter>> {
         panic!("Expected a filter.");
     }
 
+    #[cfg(feature = "profiling")]
+    let position = crate::profiling::Position::new(filter.as_span().start_pos());
     let filter_str = filter.as_str();
     let mut filter = filter.into_inner();
     let name = filter.next().expect("A filter always has a name.").as_str();
@@ -230,6 +234,8 @@ fn parse_filter(filter: Pair, options: &Language) -> Result<Box<dyn Filter>> {
         .context_key("filter")
         .value_with(|| filter_str.to_string().into())?;
 
+    #[cfg(feature = "profiling")]
+    let f = crate::profiling::ProfiledFilter::wrap(f, position, name);
     Ok(f)
 }
 
@@ -418,6 +424,8 @@ impl<'a, 'b> TagBlock<'a, 'b> {
 /// An element that is raw text.
 pub struct Raw<'a> {
     text: &'a str,
+    #[cfg(feature = "profiling")]
+    position: crate::profiling::Position,
 }
 impl<'a> From<Pair<'a>> for Raw<'a> {
     fn from(element: Pair<'a>) -> Self {
@@ -426,6 +434,8 @@ impl<'a> From<Pair<'a>> for Raw<'a> {
         }
         Raw {
             text: element.as_str(),
+            #[cfg(feature = "profiling")]
+            position: crate::profiling::Position::new(element.as_span().start_pos()),
         }
     }
 }
@@ -438,7 +448,10 @@ impl<'a> Into<&'a str> for Raw<'a> {
 impl<'a> Raw<'a> {
     /// Turns the text into a Renderable.
     pub fn into_renderable(self) -> Box<dyn Renderable> {
-        Box::new(Text::new(self.as_str()))
+        let inner: Box<dyn Renderable> = Box::new(Text::new(self.as_str()));
+        #[cfg(feature = "profiling")]
+        let inner = crate::profiling::ProfiledRenderable::wrap(inner, self.position, "text", None);
+        inner
     }
 
     /// Returns the text as a str.
@@ -452,6 +465,8 @@ pub struct Tag<'a> {
     name: Pair<'a>,
     tokens: TagTokenIter<'a>,
     as_str: &'a str,
+    #[cfg(feature = "profiling")]
+    position: crate::profiling::Position,
 }
 
 impl<'a> From<Pair<'a>> for Tag<'a> {
@@ -459,6 +474,8 @@ impl<'a> From<Pair<'a>> for Tag<'a> {
         if element.as_rule() != Rule::Tag {
             panic!("Only rule Tag can be converted to Tag.");
         }
+        #[cfg(feature = "profiling")]
+        let position = crate::profiling::Position::new(element.as_span().start_pos());
         let as_str = element.as_str();
         let mut tag = element
             .into_inner()
@@ -481,6 +498,8 @@ impl<'a> From<Pair<'a>> for Tag<'a> {
             name,
             tokens,
             as_str,
+            #[cfg(feature = "profiling")]
+            position,
         }
     }
 }
@@ -490,6 +509,8 @@ impl<'a> Tag<'a> {
     ///
     /// This is used as a debug tool. It allows to easily build tags in unit tests.
     pub fn new(text: &'a str) -> Result<Self> {
+        #[cfg(feature = "profiling")]
+        let _buffer = crate::profiling::ParseBufferGuard::new();
         let tag = LiquidParser::parse(Rule::Tag, text)
             .map_err(convert_pest_error)?
             .next()
@@ -533,16 +554,31 @@ impl<'a> Tag<'a> {
         next_elements: &mut dyn Iterator<Item = Pair>,
         options: &Language,
     ) -> Result<Box<dyn Renderable>> {
+        #[cfg(feature = "profiling")]
+        let location = self.position;
+        #[cfg(feature = "profiling")]
+        let _buffer = location.enter();
         let (name, tokens) = (self.name, self.tokens);
         let position = name.as_span();
         let name = name.as_str();
 
         if let Some(plugin) = options.tags.get(name) {
-            plugin.parse(tokens, options)
+            let node = plugin.parse(tokens, options)?;
+            #[cfg(feature = "profiling")]
+            let node =
+                crate::profiling::ProfiledRenderable::wrap(node, location, "tag", Some(name));
+            Ok(node)
         } else if let Some(plugin) = options.blocks.get(name) {
             let reflection = plugin.reflection();
             let block = TagBlock::new(reflection.start_tag(), reflection.end_tag(), next_elements);
             let renderables = plugin.parse(tokens, block, options)?;
+            #[cfg(feature = "profiling")]
+            let renderables = crate::profiling::ProfiledRenderable::wrap(
+                renderables,
+                location,
+                "block",
+                Some(name),
+            );
             Ok(renderables)
         } else {
             let pest_error = ::pest::error::Error::new_from_span(
@@ -583,6 +619,8 @@ impl<'a> From<Pair<'a>> for Exp<'a> {
 impl Exp<'_> {
     /// Parses the expression just as if it weren't inside any block.
     pub fn parse(self, options: &Language) -> Result<Box<dyn Renderable>> {
+        #[cfg(feature = "profiling")]
+        let position = crate::profiling::Position::new(self.element.as_span().start_pos());
         let filter_chain = self
             .element
             .into_inner()
@@ -593,7 +631,10 @@ impl Exp<'_> {
             .expect("An expression consists of one filterchain.");
 
         let filter_chain = parse_filter_chain(filter_chain, options)?;
-        Ok(Box::new(filter_chain))
+        let node: Box<dyn Renderable> = Box::new(filter_chain);
+        #[cfg(feature = "profiling")]
+        let node = crate::profiling::ProfiledRenderable::wrap(node, position, "output", None);
+        Ok(node)
     }
 
     /// Returns the expression as a str.

@@ -60,27 +60,35 @@ impl<P: super::Runtime, O: ObjectView> super::Runtime for StackFrame<P, O> {
     }
 
     fn try_get(&self, path: &[ScalarCow<'_>]) -> Option<ValueCow<'_>> {
-        let key = path.first()?;
-        let key = key.to_kstr();
-        let data = &self.data;
-        if data.contains_key(key.as_str()) {
-            crate::model::try_find(data.as_value(), path)
-        } else {
-            self.parent.try_get(path)
-        }
+        profiling_frame!(try, "stack", path, span, {
+            let key = path.first()?;
+            let key = key.to_kstr();
+            let data = &self.data;
+            if data.contains_key(key.as_str()) {
+                crate::model::try_find(data.as_value(), path)
+            } else {
+                #[cfg(feature = "profiling")]
+                span.record("delegated", true);
+                self.parent.try_get(path)
+            }
+        })
     }
 
     fn get(&self, path: &[ScalarCow<'_>]) -> Result<ValueCow<'_>> {
-        let key = path.first().ok_or_else(|| {
-            Error::with_msg("Unknown variable").context("requested variable", "nil")
-        })?;
-        let key = key.to_kstr();
-        let data = &self.data;
-        if data.contains_key(key.as_str()) {
-            crate::model::find(data.as_value(), path).map(|v| v.into_owned().into())
-        } else {
-            self.parent.get(path)
-        }
+        profiling_frame!(strict, "stack", path, span, {
+            let key = path.first().ok_or_else(|| {
+                Error::with_msg("Unknown variable").context("requested variable", "nil")
+            })?;
+            let key = key.to_kstr();
+            let data = &self.data;
+            if data.contains_key(key.as_str()) {
+                crate::model::find(data.as_value(), path).map(|v| v.into_owned().into())
+            } else {
+                #[cfg(feature = "profiling")]
+                span.record("delegated", true);
+                self.parent.get(path)
+            }
+        })
     }
 
     fn set_global(
@@ -149,27 +157,35 @@ impl<P: super::Runtime> super::Runtime for GlobalFrame<P> {
     }
 
     fn try_get(&self, path: &[ScalarCow<'_>]) -> Option<ValueCow<'_>> {
-        let key = path.first()?;
-        let key = key.to_kstr();
-        let data = self.data.borrow();
-        if data.contains_key(key.as_str()) {
-            crate::model::try_find(data.as_value(), path).map(|v| v.into_owned().into())
-        } else {
-            self.parent.try_get(path)
-        }
+        profiling_frame!(try, "global", path, span, {
+            let key = path.first()?;
+            let key = key.to_kstr();
+            let data = self.data.borrow();
+            if data.contains_key(key.as_str()) {
+                crate::model::try_find(data.as_value(), path).map(|v| v.into_owned().into())
+            } else {
+                #[cfg(feature = "profiling")]
+                span.record("delegated", true);
+                self.parent.try_get(path)
+            }
+        })
     }
 
     fn get(&self, path: &[ScalarCow<'_>]) -> Result<ValueCow<'_>> {
-        let key = path.first().ok_or_else(|| {
-            Error::with_msg("Unknown variable").context("requested variable", "nil")
-        })?;
-        let key = key.to_kstr();
-        let data = self.data.borrow();
-        if data.contains_key(key.as_str()) {
-            crate::model::find(data.as_value(), path).map(|v| v.into_owned().into())
-        } else {
-            self.parent.get(path)
-        }
+        profiling_frame!(strict, "global", path, span, {
+            let key = path.first().ok_or_else(|| {
+                Error::with_msg("Unknown variable").context("requested variable", "nil")
+            })?;
+            let key = key.to_kstr();
+            let data = self.data.borrow();
+            if data.contains_key(key.as_str()) {
+                crate::model::find(data.as_value(), path).map(|v| v.into_owned().into())
+            } else {
+                #[cfg(feature = "profiling")]
+                span.record("delegated", true);
+                self.parent.get(path)
+            }
+        })
     }
 
     fn set_global(
@@ -237,27 +253,35 @@ impl<P: super::Runtime> super::Runtime for IndexFrame<P> {
     }
 
     fn try_get(&self, path: &[ScalarCow<'_>]) -> Option<ValueCow<'_>> {
-        let key = path.first()?;
-        let key = key.to_kstr();
-        let data = self.data.borrow();
-        if data.contains_key(key.as_str()) {
-            crate::model::try_find(data.as_value(), path).map(|v| v.into_owned().into())
-        } else {
-            self.parent.try_get(path)
-        }
+        profiling_frame!(try, "index", path, span, {
+            let key = path.first()?;
+            let key = key.to_kstr();
+            let data = self.data.borrow();
+            if data.contains_key(key.as_str()) {
+                crate::model::try_find(data.as_value(), path).map(|v| v.into_owned().into())
+            } else {
+                #[cfg(feature = "profiling")]
+                span.record("delegated", true);
+                self.parent.try_get(path)
+            }
+        })
     }
 
     fn get(&self, path: &[ScalarCow<'_>]) -> Result<ValueCow<'_>> {
-        let key = path.first().ok_or_else(|| {
-            Error::with_msg("Unknown variable").context("requested variable", "nil")
-        })?;
-        let key = key.to_kstr();
-        let data = self.data.borrow();
-        if data.contains_key(key.as_str()) {
-            crate::model::find(data.as_value(), path).map(|v| v.into_owned().into())
-        } else {
-            self.parent.get(path)
-        }
+        profiling_frame!(strict, "index", path, span, {
+            let key = path.first().ok_or_else(|| {
+                Error::with_msg("Unknown variable").context("requested variable", "nil")
+            })?;
+            let key = key.to_kstr();
+            let data = self.data.borrow();
+            if data.contains_key(key.as_str()) {
+                crate::model::find(data.as_value(), path).map(|v| v.into_owned().into())
+            } else {
+                #[cfg(feature = "profiling")]
+                span.record("delegated", true);
+                self.parent.get(path)
+            }
+        })
     }
 
     fn set_global(
@@ -341,23 +365,29 @@ impl<P: super::Runtime, O: ObjectView> super::Runtime for SandboxedStackFrame<P,
     }
 
     fn try_get(&self, path: &[ScalarCow<'_>]) -> Option<ValueCow<'_>> {
-        let key = path.first()?;
-        let key = key.to_kstr();
-        let data = &self.data;
-        data.get(key.as_str())
-            .and_then(|_| crate::model::try_find(data.as_value(), path))
+        profiling_frame!(try, "sandbox", path, _span, {
+            let key = path.first()?;
+            let key = key.to_kstr();
+            let data = &self.data;
+            data.get(key.as_str())
+                .and_then(|_| crate::model::try_find(data.as_value(), path))
+        })
     }
 
     fn get(&self, path: &[ScalarCow<'_>]) -> Result<ValueCow<'_>> {
-        let key = path.first().ok_or_else(|| {
-            Error::with_msg("Unknown variable").context("requested variable", "nil")
-        })?;
-        let key = key.to_kstr();
-        let data = &self.data;
-        data.get(key.as_str())
-            .and_then(|_| crate::model::try_find(data.as_value(), path))
-            .map(|v| v.into_owned().into())
-            .ok_or_else(|| Error::with_msg("Unknown variable").context("requested variable", key))
+        profiling_frame!(strict, "sandbox", path, _span, {
+            let key = path.first().ok_or_else(|| {
+                Error::with_msg("Unknown variable").context("requested variable", "nil")
+            })?;
+            let key = key.to_kstr();
+            let data = &self.data;
+            data.get(key.as_str())
+                .and_then(|_| crate::model::try_find(data.as_value(), path))
+                .map(|v| v.into_owned().into())
+                .ok_or_else(|| {
+                    Error::with_msg("Unknown variable").context("requested variable", key)
+                })
+        })
     }
 
     fn set_global(

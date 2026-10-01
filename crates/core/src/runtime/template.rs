@@ -34,21 +34,23 @@ impl Renderable for Template {
     }
 
     fn render_to(&self, writer: &mut dyn Write, runtime: &dyn Runtime) -> Result<()> {
-        for el in &self.elements {
-            el.render_to(writer, runtime)?;
+        profiling_template!(self.elements.len(), {
+            for el in &self.elements {
+                el.render_to(writer, runtime)?;
 
-            // Did the last element we processed set an interrupt? If so, we
-            // need to abandon the rest of our child elements and just
-            // return what we've got. This is usually in response to a
-            // `break` or `continue` tag being rendered.
-            if runtime
-                .registers()
-                .get_mut::<super::InterruptRegister>()
-                .interrupted()
-            {
-                break;
+                // Did the last element we processed set an interrupt? If so, we
+                // need to abandon the rest of our child elements and just
+                // return what we've got. This is usually in response to a
+                // `break` or `continue` tag being rendered.
+                if runtime
+                    .registers()
+                    .get_mut::<super::InterruptRegister>()
+                    .interrupted()
+                {
+                    break;
+                }
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 }

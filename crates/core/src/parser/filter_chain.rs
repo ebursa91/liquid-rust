@@ -23,23 +23,30 @@ impl FilterChain {
 
     /// Process `Value` expression within `runtime`'s stack.
     pub fn evaluate<'s>(&'s self, runtime: &'s dyn Runtime) -> Result<ValueCow<'s>> {
-        // take either the provided value or the value from the provided variable
-        let mut entry = self.entry.evaluate(runtime)?;
+        profiling_result!(
+            "liquid::profile::filter",
+            "liquid.filter_chain",
+            { filter_count = self.filters.len() },
+            {
+                // take either the provided value or the value from the provided variable
+                let mut entry = self.entry.evaluate(runtime)?;
 
-        // apply all specified filters
-        for filter in &self.filters {
-            entry = ValueCow::Owned(
-                filter
-                    .evaluate(entry.as_view(), runtime)
-                    .trace("Filter error")
-                    .context_key("filter")
-                    .value_with(|| format!("{}", filter).into())
-                    .context_key("input")
-                    .value_with(|| format!("{}", entry.source()).into())?,
-            );
-        }
+                // apply all specified filters
+                for filter in &self.filters {
+                    entry = ValueCow::Owned(
+                        filter
+                            .evaluate(entry.as_view(), runtime)
+                            .trace("Filter error")
+                            .context_key("filter")
+                            .value_with(|| format!("{}", filter).into())
+                            .context_key("input")
+                            .value_with(|| format!("{}", entry.source()).into())?,
+                    );
+                }
 
-        Ok(entry)
+                Ok(entry)
+            }
+        )
     }
 }
 
@@ -56,8 +63,10 @@ impl fmt::Display for FilterChain {
 
 impl Renderable for FilterChain {
     fn render_to(&self, writer: &mut dyn Write, runtime: &dyn Runtime) -> Result<()> {
-        let entry = self.evaluate(runtime)?;
-        write!(writer, "{}", entry.render()).replace("Failed to render")?;
-        Ok(())
+        profiling_result!("liquid::profile::node", "liquid.output", {}, {
+            let entry = self.evaluate(runtime)?;
+            write!(writer, "{}", entry.render()).replace("Failed to render")?;
+            Ok(())
+        })
     }
 }

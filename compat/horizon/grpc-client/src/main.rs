@@ -9,8 +9,14 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 
 fn options() -> ClientResult<BTreeMap<String, String>> {
+    parse_options(std::env::args().skip(1))
+}
+
+fn parse_options(
+    arguments: impl IntoIterator<Item = String>,
+) -> ClientResult<BTreeMap<String, String>> {
     let mut options = BTreeMap::new();
-    let mut arguments = std::env::args().skip(1);
+    let mut arguments = arguments.into_iter();
     while let Some(key) = arguments.next() {
         if ![
             "--endpoint",
@@ -28,14 +34,21 @@ fn options() -> ClientResult<BTreeMap<String, String>> {
             "--renderer",
             "--theme-root",
             "--output-dir",
+            "--profile-json",
+            "--profile-level",
+            "--profile-trace",
         ]
         .contains(&key.as_str())
         {
             return Err(format!("Unknown native RPC option {key}").into());
         }
-        let value = arguments
-            .next()
-            .ok_or("Every RPC option requires a value")?;
+        let value = if key == "--profile-trace" {
+            "true".to_owned()
+        } else {
+            arguments
+                .next()
+                .ok_or("Every RPC option requires a value")?
+        };
         if options.insert(key, value).is_some() {
             return Err("Duplicate RPC option".into());
         }
@@ -110,6 +123,60 @@ fn validate_output(
     Ok((directory, theme, renderer))
 }
 
+struct RenderProfile {
+    path: PathBuf,
+    level: String,
+    trace: bool,
+}
+
+fn render_profile(
+    options: &BTreeMap<String, String>,
+    directory: &Path,
+    theme: &Path,
+    renderer: &Path,
+) -> ClientResult<Option<RenderProfile>> {
+    let Some(path) = options.get("--profile-json") else {
+        if options.contains_key("--profile-level") || options.contains_key("--profile-trace") {
+            return Err("Profiling options require --profile-json PATH".into());
+        }
+        return Ok(None);
+    };
+    if path.is_empty() {
+        return Err("Profile output requires a nonempty path".into());
+    }
+    let level = selected(options, "--profile-level", "templates");
+    if !["templates", "detailed"].contains(&level) {
+        return Err("--profile-level must be templates or detailed".into());
+    }
+    let path = checked_path(Path::new(path))?;
+    if path.starts_with(theme)
+        || theme.starts_with(&path)
+        || renderer.starts_with(&path)
+        || directory.starts_with(&path)
+        || ["rpc-report.json", "report.json", "index.html", "styles.css"]
+            .iter()
+            .any(|name| path == directory.join(name))
+    {
+        return Err("RPC profile output overlaps an input or rendered artifact".into());
+    }
+    if path.exists() && !path.is_file() {
+        return Err("RPC profile output must be a regular file".into());
+    }
+    if path.exists() {
+        let previous: Json = serde_json::from_slice(&std::fs::read(&path)?)?;
+        if previous["schema_version"] != 1
+            || previous["clock"] != "monotonic_instrumented_active_wall"
+        {
+            return Err("RPC profile output may only replace a previous render profile".into());
+        }
+    }
+    Ok(Some(RenderProfile {
+        path,
+        level: level.to_owned(),
+        trace: options.contains_key("--profile-trace"),
+    }))
+}
+
 fn clear_success_markers(directory: &Path) -> ClientResult<()> {
     for name in ["rpc-report.json", "report.json"] {
         let marker = directory.join(name);
@@ -143,8 +210,10 @@ async fn render_snapshot(
     page: &str,
     context: &[u8],
     timeout: Duration,
+    profile: Option<&RenderProfile>,
 ) -> ClientResult<()> {
-    let mut child = Command::new(renderer)
+    let mut command = Command::new(renderer);
+    command
         .args([
             "--fixture-stdin",
             "--scope",
@@ -155,7 +224,18 @@ async fn render_snapshot(
         ])
         .arg(theme)
         .arg("--output-dir")
-        .arg(directory)
+        .arg(directory);
+    if let Some(profile) = profile {
+        command
+            .arg("--profile-json")
+            .arg(&profile.path)
+            .arg("--profile-level")
+            .arg(&profile.level);
+        if profile.trace {
+            command.arg("--profile-trace");
+        }
+    }
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -220,6 +300,14 @@ async fn main() -> ClientResult<()> {
     )?;
     // Once the output is safe, invalid request/token options must not retain success.
     clear_success_markers(&directory)?;
+    let profile = render_profile(&options, &directory, &theme, &renderer)?;
+    if let Some(profile) = &profile {
+        match std::fs::remove_file(&profile.path) {
+            Ok(()) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(error) => return Err(error.into()),
+        }
+    }
     let page = selected(&options, "--page", "index");
     let query = GetRenderContextRequest {
         tenant_id: required(&options, "--tenant-id")?.to_owned(),
@@ -251,6 +339,7 @@ async fn main() -> ClientResult<()> {
         page,
         &snapshot.context_json,
         render_timeout,
+        profile.as_ref(),
     )
     .await
     {
@@ -263,6 +352,7 @@ async fn main() -> ClientResult<()> {
     metadata["render_timeout_ms"] = json!(render_timeout.as_millis());
     metadata["renderer"] = json!("liquid-rust original Horizon source");
     metadata["local_fixture_fallback"] = json!(false);
+    metadata["profiling_enabled"] = json!(profile.is_some());
     use std::io::Write;
     let temporary = directory.join(format!(
         ".rpc-report-{}-{}.json",
@@ -302,6 +392,110 @@ mod tests {
         ));
         std::fs::create_dir_all(&directory).unwrap();
         directory
+    }
+
+    #[test]
+    fn profile_options_require_a_path_and_protect_inputs_and_success_reports() {
+        let parsed = parse_options(
+            ["--profile-json", "/tmp/diagnostic.json", "--profile-trace"].map(str::to_owned),
+        )
+        .unwrap();
+        assert_eq!(parsed["--profile-trace"], "true");
+        assert!(parse_options(["--profile-trace", "--profile-trace"].map(str::to_owned)).is_err());
+        let directory = directory();
+        let theme = directory.join("theme");
+        let renderer = directory.join("renderer");
+        let output = directory.join("output");
+        std::fs::create_dir(&theme).unwrap();
+        std::fs::create_dir(&output).unwrap();
+        std::fs::write(&renderer, "owned renderer").unwrap();
+        let mut options = BTreeMap::from([("--profile-level".to_owned(), "detailed".to_owned())]);
+        assert!(render_profile(&options, &output, &theme, &renderer).is_err());
+        for path in [
+            renderer.clone(),
+            theme.join("sections/probe.liquid"),
+            output.clone(),
+            output.join("rpc-report.json"),
+            output.join("report.json"),
+            output.join("index.html"),
+        ] {
+            options.insert("--profile-json".to_owned(), path.display().to_string());
+            assert!(render_profile(&options, &output, &theme, &renderer).is_err());
+        }
+        options.insert(
+            "--profile-json".to_owned(),
+            output.join("profile.json").display().to_string(),
+        );
+        assert_eq!(
+            render_profile(&options, &output, &theme, &renderer)
+                .unwrap()
+                .unwrap()
+                .level,
+            "detailed"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&renderer).unwrap(),
+            "owned renderer"
+        );
+        let profile_path = output.join("profile.json");
+        std::fs::write(&profile_path, "unrelated input").unwrap();
+        assert!(render_profile(&options, &output, &theme, &renderer).is_err());
+        assert_eq!(
+            std::fs::read_to_string(&profile_path).unwrap(),
+            "unrelated input"
+        );
+        std::fs::write(
+            &profile_path,
+            r#"{"schema_version":1,"clock":"monotonic_instrumented_active_wall"}"#,
+        )
+        .unwrap();
+        assert!(render_profile(&options, &output, &theme, &renderer).is_ok());
+        options.insert("--profile-level".to_owned(), "invalid".to_owned());
+        assert!(render_profile(&options, &output, &theme, &renderer).is_err());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn native_render_forwards_profile_flags_and_keeps_context_on_stdin() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = directory();
+        let renderer = directory.join("renderer");
+        let args = directory.join("arguments");
+        let body = directory.join("context");
+        std::fs::write(
+            &renderer,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\ncat > '{}'\n",
+                args.display(),
+                body.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&renderer, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let profile = RenderProfile {
+            path: directory.join("profile.json"),
+            level: "detailed".to_owned(),
+            trace: true,
+        };
+        render_snapshot(
+            &renderer,
+            &directory,
+            &directory,
+            "collection",
+            b"synthetic context sentinel",
+            Duration::from_secs(2),
+            Some(&profile),
+        )
+        .await
+        .unwrap();
+        let forwarded = std::fs::read_to_string(args).unwrap();
+        assert!(forwarded.contains("--profile-json\n"));
+        assert!(forwarded.contains("--profile-level\ndetailed\n"));
+        assert!(forwarded.contains("--profile-trace\n"));
+        assert!(!forwarded.contains("synthetic context sentinel"));
+        assert_eq!(std::fs::read(body).unwrap(), b"synthetic context sentinel");
+        std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
@@ -388,6 +582,7 @@ mod tests {
             "index",
             b"{}",
             Duration::from_millis(100),
+            None,
         )
         .await
         .unwrap_err();
@@ -411,6 +606,7 @@ mod tests {
             "index",
             b"{}",
             Duration::from_secs(1),
+            None,
         )
         .await
         .unwrap_err();

@@ -43,14 +43,16 @@ impl Expression {
     /// Convert to a `Value`.
     pub fn try_evaluate<'c>(&'c self, runtime: &'c dyn Runtime) -> Option<ValueCow<'c>> {
         match self {
-            Expression::Literal(ref x) => {
-                Some(runtime.project_value(ValueCow::Borrowed(x), runtime, None))
-            }
+            Expression::Literal(ref x) => Some(profiling_project!(runtime.project_value(
+                ValueCow::Borrowed(x),
+                runtime,
+                None
+            ))),
             Expression::Variable(ref x) => {
                 let path = x.try_evaluate(runtime)?;
-                runtime
-                    .try_get(&path)
-                    .map(|value| runtime.project_value(value, runtime, Some(&path)))
+                profiling_lookup!(try, "try", path, runtime.try_get(&path)).map(|value| {
+                    profiling_project!(runtime.project_value(value, runtime, Some(&path)))
+                })
             }
         }
     }
@@ -62,18 +64,27 @@ impl Expression {
             Expression::Variable(ref x) => {
                 if runtime.strict_variables() {
                     let path = x.evaluate(runtime)?;
-                    (runtime.get(&path)?, Some(path))
+                    (
+                        profiling_lookup!(strict, path, runtime.get(&path))?,
+                        Some(path),
+                    )
                 } else {
                     let path = x.evaluate_optional(runtime)?;
                     let value = path
                         .as_ref()
-                        .and_then(|path| runtime.try_get(path))
+                        .and_then(|path| {
+                            profiling_lookup!(try, "optional", path, runtime.try_get(path))
+                        })
                         .unwrap_or(ValueCow::Owned(Value::Nil));
                     (value, path)
                 }
             }
         };
-        Ok(runtime.project_value(val, runtime, path.as_deref()))
+        Ok(profiling_project!(runtime.project_value(
+            val,
+            runtime,
+            path.as_deref()
+        )))
     }
 }
 

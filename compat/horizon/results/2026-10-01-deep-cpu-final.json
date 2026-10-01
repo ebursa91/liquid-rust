@@ -6730,7 +6730,7 @@
     "raw_report_sha256": "56149cf034b0ec92359536062494276bdc738a002d422b57eef225ce4856211a",
     "extraction": "All numeric samples/accounting and source/input fingerprints retained; private source/runtime paths use role placeholders; ephemeral process/port identifiers omitted. Theme source/output, raw logs and sampled addresses remain local.",
     "notes": [
-      "Five variants, three batches, 750 excluded warmup and 1500 measured exact renders. Worker CPU includes framing and pipe writes, not HTTP/RPC. ThinLTO also changes codegen units to one. Shipped closest implementation ecd9ee44212d95ac70dec90fa21b4aa0c99b4d6c matches recorded source/binary."
+      "Five variants, three batches, 750 excluded warmup and 1500 measured exact renders. Worker CPU includes framing and pipe writes, not HTTP/RPC. The default already uses fat LTO and one codegen unit; the ThinLTO candidate explicitly retains one codegen unit and changes effective LTO only. Shipped closest implementation ecd9ee44212d95ac70dec90fa21b4aa0c99b4d6c matches recorded source/binary."
     ]
   }
 }
