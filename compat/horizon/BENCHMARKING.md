@@ -2,7 +2,7 @@
 
 The runner compares the release Rust renderer with the standalone Ruby renderer
 in three modes: plain Ruby, Ruby with YJIT, and Ruby with YJIT inside a Fiber.
-Select the Ruby executable explicitly for a versioned run. Ruby 4.0.7 is the main
+The [2026-10-01 results and numeric samples](RESULTS.md) record the first seven-batch comparison. Select the Ruby executable explicitly for a versioned run. Ruby 4.0.7 is the main
 campaign runtime; Ruby 3.4.10 remains the earlier compatibility baseline. Separate
 runs for different versions are separate experiments.
 
