@@ -88,3 +88,15 @@ storage and `Send`/`Sync`. Rust 1.83 production library checks cover the changed
 crate. The existing locked `snapbox 1.2.2` dev dependency requires edition 2024,
 so the Rust 1.83 dev test suite remains a pre-existing toolchain limitation;
 the minimum version and dependency lockfile are unchanged.
+
+## Follow-up boundaries
+
+This implementation uses the same detachment rule at every mutable entry point.
+It can still copy a shared map before a missing mutable lookup/removal or a
+clear operation. Avoiding those copies is a separate optimization requiring
+measurements of successful lookups and preservation of unique-map capacity
+reuse. It is not included in the results above.
+
+Replacing nearly every field necessarily detaches most shared maps. Improving
+empty-map handling does not remove that tradeoff; accepting this change is a
+choice to favor repeated reads and narrow mutations.
