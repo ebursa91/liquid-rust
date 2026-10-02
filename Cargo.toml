@@ -176,3 +176,7 @@ harness = false
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "object_lifecycle"
+harness = false
